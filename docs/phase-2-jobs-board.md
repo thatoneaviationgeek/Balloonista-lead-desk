@@ -18,7 +18,19 @@ the view that answers questions the calendar cannot:
 If a change belongs in the calendar, it goes to the calendar. The panel adds
 the operational layer around it.
 
-## Access to Google — decide this first
+## Access to Google — settled
+
+**Decided 29 August 2026: domain-wide delegation.** Both Jimmo and Aurelija hold
+Workspace super-admin on the domain, so the authorisation step in Admin console →
+Security → API controls → Domain-wide delegation can be done in house. No OAuth
+consent screen, no Google verification submission, no per-user connect step, and
+no 7-day refresh-token expiry to work around.
+
+Consequences: the service account reads the calendar server-side under a
+`calendar.readonly` scope — the panel never writes to Google, so read-only is the
+correct grant and the easier one to authorise. `google_accounts` stays in the
+schema but is **unused**; do not build against it. The reasoning behind the two
+options is kept below for the record.
 
 The team is a mix: some on the Balloonista Workspace domain, some on ordinary
 Gmail addresses. That rules out the tidy options and leaves two:
@@ -51,10 +63,19 @@ Likely additions once the sync is real: a `calendar_sync_state` table holding
 Google's incremental `syncToken` per calendar, and `sourceUpdatedAt` on `jobs`
 so a calendar edit can win over a stale local copy.
 
+`jobs.sourceUpdatedAt` is nullable, so a manually-created job has NULL in it. The
+Stage 2 `setWhere` must therefore be written
+`jobs.source_updated_at IS NULL OR excluded.source_updated_at > jobs.source_updated_at` —
+a bare `>` against NULL evaluates to NULL rather than true, so the update would be
+silently skipped and the job would never pick up its calendar link.
+
 ## The sync
 
 - A Vercel Cron route (`/api/cron/calendar`) every 15 minutes, plus a manual
   "sync now" button for when someone has just changed the calendar.
+  **Confirmed 29 August 2026: the account is on Vercel Pro**, so a 15-minute
+  cadence stands as originally planned — the once-a-day cron limit that would
+  have forced a rethink applies to Hobby only.
 - Use Google's **incremental sync tokens**, not a full list every run. Fall
   back to a full sync when Google returns 410 Gone.
 - Match on `calendarEventId`. Insert what is new, update what changed, and mark
@@ -66,11 +87,14 @@ so a calendar edit can win over a stale local copy.
 - Recurring events: expand instances, do not store the series as one job.
 - All-day events and time zones: everything stored UTC, rendered Europe/London.
 
-## Which calendars
+## Which calendars — settled
 
-Open question — one shared Balloonista calendar, or one per person? Ask before
-building. The schema already carries `calendarId` per job so several are
-possible, but the UI is simpler if there is one.
+**Decided 29 August 2026: one shared Balloonista calendar.** The unique index on
+`calendarEventId` alone is therefore correct as it stands and must not be widened.
+`calendarId` is still populated on every job, so adding calendars later is a
+migration rather than a redesign — but note that it would be a migration against
+live rows, and the index would need to become `(calendarId, calendarEventId)`
+because Google event IDs are unique per calendar, not globally.
 
 ## UI
 

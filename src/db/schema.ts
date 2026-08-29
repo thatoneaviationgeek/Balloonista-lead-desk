@@ -27,6 +27,13 @@ export const jobStatusEnum = pgEnum("job_status", [
   "cancelled",
 ]);
 export const jobTypeEnum = pgEnum("job_type", ["install", "courier", "set_dec", "other"]);
+export const jobEventActionEnum = pgEnum("job_event_action", [
+  "status",
+  "assignment",
+  "dismissal",
+  "restored",
+  "note",
+]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "doing", "done", "blocked"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "normal", "high"]);
 
@@ -148,8 +155,24 @@ export const jobs = pgTable(
     leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
     calendarEventId: text("calendar_event_id"),
     calendarId: text("calendar_id"),
+    /* Google's own `updated` timestamp for the event. Storing it does nothing on
+       its own: the Stage 2 upsert has to actually compare it — a `setWhere` on
+       the conflict clause, so the write only lands when the incoming payload is
+       newer than the row already held. Without that comparison a late, stale
+       payload still overwrites a newer one, which is the precise failure this
+       column exists to prevent. */
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
     gmailThreadId: text("gmail_thread_id"),
     notes: text("notes"),
+
+    /* A shared calendar carries holidays, meetings and personal entries as well
+       as work. Rather than guess with keyword rules, the sync imports everything
+       and a person dismisses what is not a job. Dismissal is a panel-owned
+       decision and a sync must never clear it — the same rule that stops a
+       scanner rerun from overwriting an approved lead. */
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    dismissedBy: uuid("dismissed_by").references(() => people.id, { onDelete: "set null" }),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -157,6 +180,36 @@ export const jobs = pgTable(
     uniqueIndex("jobs_calendar_event_idx").on(t.calendarEventId),
     index("jobs_starts_idx").on(t.startsAt),
   ],
+);
+
+/* Audit trail for jobs, mirroring `lead_events`. Who reassigned a job, and when,
+   is the question asked after something has gone wrong — and it cannot be
+   backfilled afterwards, so the rows have to start accumulating from the first
+   change rather than from whenever the board UI lands.
+
+   Unlike `lead_events`, not every entry here is a status transition: a
+   reassignment and a dismissal both change nothing about `status`. `action` is
+   the discriminator, and the from/to pairs are filled in only where they apply —
+   `status` populates the status pair, `assignment` the owner pair, `dismissal`
+   and `restored` neither, `note` neither. */
+export const jobEvents = pgTable(
+  "job_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => people.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email"),
+    action: jobEventActionEnum("action").notNull(),
+    fromStatus: jobStatusEnum("from_status"),
+    toStatus: jobStatusEnum("to_status"),
+    fromOwnerId: uuid("from_owner_id").references(() => people.id, { onDelete: "set null" }),
+    toOwnerId: uuid("to_owner_id").references(() => people.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("job_events_job_idx").on(t.jobId)],
 );
 
 export const tasks = pgTable(
@@ -175,6 +228,19 @@ export const tasks = pgTable(
   },
   (t) => [index("tasks_assignee_status_idx").on(t.assigneeId, t.status)],
 );
+
+/* Incremental sync bookkeeping, one row per calendar. `calendarId` is the key
+   because Google issues sync tokens per calendar and a token is only meaningful
+   against the calendar that produced it. A null `syncToken` means the next run
+   must fall back to a full sync — which is also how a 410 Gone is recorded:
+   clear the token rather than storing a flag. */
+export const calendarSyncState = pgTable("calendar_sync_state", {
+  calendarId: text("calendar_id").primaryKey(),
+  syncToken: text("sync_token"),
+  lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /* Google OAuth tokens, one row per connected person. Phase 2. */
 export const googleAccounts = pgTable(
