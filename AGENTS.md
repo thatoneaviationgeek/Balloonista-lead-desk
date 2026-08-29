@@ -37,6 +37,10 @@ tokens are ported from the v1 static site and should not be redesigned casually.
   boundaries, checked in both light and dark.
 - **`legacy/` is the old static site.** Reference only; do not edit or import it.
 
+**Current work:** Phase 1 (lead desk on Postgres) is done. The brief for the
+next module is `docs/phase-2-jobs-board.md` — read it before starting on jobs,
+calendar sync, or tasks.
+
 **Before committing:** `npm run typecheck && npm run lint && npm run build`.
 
 **Migrations:** edit `src/db/schema.ts`, then `npm run db:generate`, then
