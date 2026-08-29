@@ -7,7 +7,11 @@
  * are matched on (region, dedupe key) and refreshed; a status already set in
  * the database is never overwritten.
  */
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
+
+/* Next.js reads .env.local automatically; standalone scripts do not.
+   Load .env.local first, then .env as a fallback. */
+loadEnv({ path: [".env.local", ".env"], quiet: true });
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";

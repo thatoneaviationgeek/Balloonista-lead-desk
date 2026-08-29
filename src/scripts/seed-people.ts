@@ -6,7 +6,11 @@
  *
  * With no arguments it lists everyone.
  */
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
+
+/* Next.js reads .env.local automatically; standalone scripts do not.
+   Load .env.local first, then .env as a fallback. */
+loadEnv({ path: [".env.local", ".env"], quiet: true });
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { people } from "../db/schema";
