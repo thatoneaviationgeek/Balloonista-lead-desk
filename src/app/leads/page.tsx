@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import AppBar from "@/components/app-bar";
 import LeadsClient from "./leads-client";
@@ -19,7 +20,12 @@ export default async function LeadsPage({
 }: {
   searchParams: Promise<{ region?: string }>;
 }) {
+  /* Defence in depth: the proxy should never let an anonymous request reach
+     here, but this page must not serve lead data on the assumption that it
+     ran. Next's own guidance is to check the session in the page too. */
   const session = await auth();
+  if (!session?.user) redirect("/signin?callbackUrl=/leads");
+
   const { region: raw } = await searchParams;
   const region = raw === "Dubai" ? "Dubai" : "UK";
 
@@ -75,14 +81,14 @@ export default async function LeadsPage({
             </span>
             <span>{region === "UK" ? "United Kingdom" : "Dubai"}</span>
             <span>
-              {session?.user.role === "viewer" ? "View only" : "Approve and reject here"}
+              {session.user.role === "viewer" ? "View only" : "Approve and reject here"}
             </span>
           </div>
         </header>
 
         <LeadsClient
           initialLeads={leads}
-          canDecide={session?.user.role !== "viewer"}
+          canDecide={session.user.role === "owner" || session.user.role === "staff"}
           region={region}
         />
 
