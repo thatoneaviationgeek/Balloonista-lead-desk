@@ -1,18 +1,34 @@
 # Balloonista Lead Desk
 
-A static, read-only dashboard of every lead the Balloonista scanners have found —
-retail and hospitality openings, film and TV productions in pre-production, and
-galas and balls. Built to be shared with the whole team: no login to Claude, no
-Google account, nothing to install.
+A static, read-only dashboard of every lead the Balloonista scanners have found,
+across two markets — **United Kingdom** and **Dubai**. Retail and hospitality
+openings, film and TV productions in pre-production, galas and balls, and the
+seasonal décor moments that drive the Gulf calendar. Built to be shared with the
+whole team: no login to Claude, no Google account, nothing to install.
 
 ## What's in here
 
 | File | What it does |
 |---|---|
-| `index.html` | The dashboard. Plain HTML/CSS/JS, no build step, no framework. |
-| `leads.json` | The data. **This is the only file you change to refresh the leads.** |
-| `vercel.json` | Sends `noindex` headers and stops `leads.json` being cached. |
+| `index.html` | UK page. |
+| `dubai.html` | Dubai page. |
+| `app.css` | Shared stylesheet for both pages. |
+| `app.js` | Shared logic for both pages. Reads which data file to load from `<body data-leads="…">`. |
+| `leads-uk.json` | UK data. **Change this to refresh the UK leads.** |
+| `leads-dubai.json` | Dubai data. **Change this to refresh the Dubai leads.** |
+| `vercel.json` | Sends `noindex` headers and stops the data files being cached. |
 | `middleware.js` | Optional password gate. Delete it if you don't want one. |
+
+The two pages are deliberately thin — all the styling and behaviour lives in
+`app.css` and `app.js`, so a change applies to both markets at once. The scanner
+tabs (Retail, Film & TV, Events, Channel) are generated from whatever is in the
+data file, so a new scanner appears automatically without touching the HTML.
+
+### Adding another market
+
+Copy `dubai.html`, change the `<title>`, the `data-leads` and `data-region`
+attributes on `<body>`, add the new page to the `.regionnav` block in every page,
+and drop in a `leads-<market>.json`. No other changes.
 
 ## Deploy
 
@@ -44,8 +60,15 @@ engines won't pick it up.
 ## Refreshing the leads
 
 The scanners write to Google Sheets in the "Balloonista Lead Agents" Drive folder.
-To update this site, replace `leads.json` and redeploy. Ask Claude for a fresh
-`leads.json` and it will regenerate it from the current sheets.
+To update this site, replace `leads-uk.json` or `leads-dubai.json` and redeploy.
+Ask Claude for a fresh data file and it will regenerate it from the current sheets.
+
+If the repo is connected to Vercel, that's just:
+
+```bash
+git commit -am "leads refresh"
+git push
+```
 
 ### Shape of the data
 
@@ -93,6 +116,10 @@ line changes here: the `fetch('./leads.json')` call points at the API instead.
 
 ## Honest limits
 
-- The data is a snapshot from whenever `leads.json` was last replaced, not live.
+- The data is a snapshot from whenever the data files were last replaced, not live.
+- The Dubai set is currently a **seed set** with contact names still to be filled in
+  by the first scheduled runs.
+- Dubai leads mostly show "Not traced" for the hiring entity, because the UAE has no
+  public companies register equivalent to Companies House. That is expected, not a bug.
 - Contacts marked GAP could not be verified. Nothing is invented or guessed.
 - Nothing on this site contacts anyone. It is a list to read and act on by hand.
