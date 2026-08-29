@@ -4,7 +4,16 @@ import Google from "next-auth/providers/google";
 /* Edge-safe half of the auth setup: no database imports live in here, because
    this is what middleware loads on every request. */
 
-export const PUBLIC_PATHS = ["/signin", "/api/leads/ingest", "/api/health"];
+/* Paths the proxy must let through unauthenticated.
+   `/api/auth` is NOT optional: it is where Google returns after consent. If
+   the proxy bounces that callback to /signin, Auth.js never runs, the session
+   cookie is never set, and sign-in loops forever with nothing to explain it. */
+export const PUBLIC_PATHS = [
+  "/api/auth",
+  "/signin",
+  "/api/leads/ingest",
+  "/api/health",
+];
 
 export default {
   providers: [Google],
