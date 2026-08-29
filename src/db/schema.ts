@@ -160,7 +160,18 @@ export const jobs = pgTable(
        the conflict clause, so the write only lands when the incoming payload is
        newer than the row already held. Without that comparison a late, stale
        payload still overwrites a newer one, which is the precise failure this
-       column exists to prevent. */
+       column exists to prevent.
+
+       The column is nullable — a manually-created job has never come from the
+       calendar and holds NULL here — so that comparison needs an explicit
+       IS NULL arm, written out in full:
+
+         jobs.source_updated_at IS NULL
+           OR excluded.source_updated_at > jobs.source_updated_at
+
+       A bare `>` against NULL evaluates to NULL rather than true, so the row
+       would be skipped in silence and a manually-created job would never pick
+       up its calendar link. */
     sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
     gmailThreadId: text("gmail_thread_id"),
     notes: text("notes"),
