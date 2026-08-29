@@ -1,125 +1,136 @@
-# Balloonista Lead Desk
+# Balloonista Control Panel
 
-A static, read-only dashboard of every lead the Balloonista scanners have found,
-across two markets — **United Kingdom** and **Dubai**. Retail and hospitality
-openings, film and TV productions in pre-production, galas and balls, and the
-seasonal décor moments that drive the Gulf calendar. Built to be shared with the
-whole team: no login to Claude, no Google account, nothing to install.
+The internal panel for Balloonista: leads today, booked-in work and staff tasks next.
+Next.js 16 (App Router) + Postgres (Neon) + Google sign-in, deployed on Vercel.
+
+> **Branch note.** This is the `v2` branch. `main` still holds the original static
+> lead desk that is live on Vercel today, and nothing here touches it. Cut the
+> production domain over only once this branch is at parity.
+
+---
+
+## Setting it up
+
+Everything below runs in `C:\AI Agents\balloonista-lead-desk`.
+
+### 1. Install
+
+```bash
+npm install
+```
+
+### 2. Environment
+
+Copy `.env.example` to a new file called `.env.local` **in the repo root** and fill it in:
+
+| Variable | Where it comes from |
+|---|---|
+| `DATABASE_URL` | Neon → your project → Connection string → **pooled** |
+| `AUTH_SECRET` | run `npx auth secret`, or `openssl rand -base64 32` |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google Cloud console → APIs & Services → Credentials → OAuth client ID (Web application) |
+| `ALLOWED_EMAIL_DOMAIN` | your Workspace domain, e.g. `balloonista.co.uk`. Blank = only people already in the `people` table can sign in |
+| `INGEST_KEY` | `openssl rand -hex 24` — the shared secret the scanners post with |
+
+Authorised redirect URIs on the Google OAuth client:
+
+```
+http://localhost:3000/api/auth/callback/google
+https://<your-vercel-domain>/api/auth/callback/google
+```
+
+### 3. Create the tables
+
+```bash
+npm run db:migrate     # applies drizzle/0000_init.sql
+```
+
+`npm run db:studio` opens a browser table browser if you want to poke about.
+
+### 4. Load the existing leads
+
+```bash
+npm run import:leads
+```
+
+Reads `leads-uk.json` and `leads-dubai.json` from the repo root and loads both
+markets. Safe to run again — leads are matched on region + id, facts are
+refreshed, and **a status already set in the database is never overwritten**.
+
+### 5. Put yourselves on the allow-list
+
+```bash
+npm run people:add -- you@balloonista.co.uk owner "Jimmo"
+npm run people:add -- aurelija@balloonista.co.uk owner "Aurelija"
+npm run people:list
+```
+
+Roles: `owner`, `staff`, `viewer`. Viewers see leads but cannot approve or reject.
+
+### 6. Run it
+
+```bash
+npm run dev          # http://localhost:3000
+```
+
+---
 
 ## What's in here
 
-| File | What it does |
-|---|---|
-| `index.html` | UK page. |
-| `dubai.html` | Dubai page. |
-| `app.css` | Shared stylesheet for both pages. |
-| `app.js` | Shared logic for both pages. Reads which data file to load from `<body data-leads="…">`. |
-| `leads-uk.json` | UK data. **Change this to refresh the UK leads.** |
-| `leads-dubai.json` | Dubai data. **Change this to refresh the Dubai leads.** |
-| `vercel.json` | Sends `noindex` headers and stops the data files being cached. |
-| `middleware.js` | Optional password gate. Delete it if you don't want one. |
+```
+src/
+  auth.config.ts        edge-safe auth config — this is what middleware loads
+  auth.ts               full auth: Google sign-in, allow-list check, roles
+  db/schema.ts          every table (leads, people, audit, runs, jobs, tasks)
+  db/index.ts           lazy Neon connection
+  lib/leads.ts          shared lead shapes, de-dupe key, labels
+  app/leads/            the lead desk — server page + client filtering
+  app/signin/           Google sign-in
+  app/api/leads/        list, status change, scanner ingest
+  components/           app bar, lead card
+  scripts/              import-leads, seed-people
+drizzle/0000_init.sql   the migration
+legacy/                 the original static site, kept for reference
+```
 
-The two pages are deliberately thin — all the styling and behaviour lives in
-`app.css` and `app.js`, so a change applies to both markets at once. The scanner
-tabs (Retail, Film & TV, Events, Channel) are generated from whatever is in the
-data file, so a new scanner appears automatically without touching the HTML.
+## The scanners
 
-### Adding another market
-
-Copy `dubai.html`, change the `<title>`, the `data-leads` and `data-region`
-attributes on `<body>`, add the new page to the `.regionnav` block in every page,
-and drop in a `leads-<market>.json`. No other changes.
-
-## Deploy
-
-From this folder:
+Instead of writing a Google Sheet and hand-building a JSON file, a scanner now
+POSTs its results straight in:
 
 ```bash
-npx vercel          # first deploy, follow the prompts
-npx vercel --prod   # promote to the production URL
+curl -X POST https://<domain>/api/leads/ingest \
+  -H "x-ingest-key: $INGEST_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+        "region": "UK",
+        "agent": "Film",
+        "leads": [
+          { "id": "f-xyz", "agent": "Film", "title": "…", "fit": "High",
+            "what": "…", "where": "…", "entity": "…", "address": "…",
+            "contact": "…", "role": "…", "src": "https://…" }
+        ]
+      }'
 ```
 
-Framework preset: **Other**. There is no build command and no output directory —
-it is static files.
+Every call writes a row to `agent_runs` with what it found, how much was new and
+how much was already known — that table is what the agent control screen will
+read in Phase 4. `/api/leads/ingest` is the only route that is not behind the
+Google login; it is protected by `INGEST_KEY` instead.
 
-Or push the folder to a Git repo and import it in the Vercel dashboard.
+Keep the scanners writing to Sheets in parallel for a fortnight or so. If
+anything here misbehaves, the old path is still there.
 
-## Password protection (optional)
+## Accessibility
 
-`middleware.js` adds HTTP basic auth. In Vercel go to
-**Project → Settings → Environment Variables** and add:
+Colour pairs are checked against WCAG 2.2 AA: ≥4.5:1 for text, ≥3:1 for UI
+component boundaries, in both light and dark. The one change from v1 is
+`--rule-2` — the border on chips, buttons and inputs — which was 1.53:1 in light
+and 2.18:1 in dark and now passes at 3.47:1 and 3.92:1.
 
-- `SITE_PASSWORD` — required to switch the gate on. Leave it unset and the site stays open.
-- `SITE_USER` — optional, defaults to `balloonista`.
+## Deploying
 
-Redeploy after adding them. If Edge Middleware isn't available on your plan,
-delete `middleware.js` and use Vercel's own Deployment Protection instead, or
-just keep the URL unlisted — `vercel.json` already sends `noindex` so search
-engines won't pick it up.
-
-## Refreshing the leads
-
-The scanners write to Google Sheets in the "Balloonista Lead Agents" Drive folder.
-To update this site, replace `leads-uk.json` or `leads-dubai.json` and redeploy.
-Ask Claude for a fresh data file and it will regenerate it from the current sheets.
-
-If the repo is connected to Vercel, that's just:
-
-```bash
-git commit -am "leads refresh"
-git push
-```
-
-### Shape of the data
-
-```json
-{
-  "updated": "2026-08-28",
-  "leads": [
-    {
-      "id": "f-hkyf",
-      "agent": "Retail | Film | Events",
-      "title": "How to Kill Your Family",
-      "fit": "High | Medium | Low",
-      "what": "One paragraph on what is happening and when.",
-      "where": "London · Netflix / Sid Gentle Films",
-      "entity": "The UK company that would sign the contract, or 'Not traced'",
-      "address": "Its registered office — where to write",
-      "contact": "Named person, or 'GAP — no contact found'",
-      "role": "Their job title and how to reach them",
-      "src": "https://source-url",
-      "status": "New | Approved | Rejected"
-    }
-  ]
-}
-```
-
-`status` is optional and defaults to `New`. Anything marked Approved or Rejected
-is dimmed and filtered out of the default "To review" view.
-
-## Local preview
-
-Opening `index.html` straight off disk won't work — the browser blocks it from
-reading `leads.json`. Serve the folder instead:
-
-```bash
-npx serve
-```
-
-## Where this is going
-
-This version is read-only on purpose: approvals live in the Google Sheets (and in
-the Claude dashboard), because that is what the scanners read back each week.
-The next step is a real backend — Postgres for the leads, the scanners as jobs,
-and approve/reject writing straight to the database. When that exists, only one
-line changes here: the `fetch('./leads.json')` call points at the API instead.
-
-## Honest limits
-
-- The data is a snapshot from whenever the data files were last replaced, not live.
-- The Dubai set is currently a **seed set** with contact names still to be filled in
-  by the first scheduled runs.
-- Dubai leads mostly show "Not traced" for the hiring entity, because the UAE has no
-  public companies register equivalent to Companies House. That is expected, not a bug.
-- Contacts marked GAP could not be verified. Nothing is invented or guessed.
-- Nothing on this site contacts anyone. It is a list to read and act on by hand.
+Vercel picks the framework up automatically (Next.js, no settings to change).
+Add every variable from `.env.example` under **Project → Settings → Environment
+Variables**, plus `AUTH_URL` set to the production URL. Deploy the `v2` branch to
+a preview URL first; promote it to production only once the leads are in and
+sign-in works.
