@@ -32,10 +32,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     async signIn({ user, profile }) {
       const email = (user.email ?? profile?.email ?? "").toLowerCase();
-      if (!email) return false;
-      if (profile && profile.email_verified === false) return false;
-      const person = await resolvePerson(email);
-      if (!person) return false;
+      if (!email) {
+        console.warn("[auth] refused: Google returned no email address");
+        return false;
+      }
+      if (profile && profile.email_verified === false) {
+        console.warn(`[auth] refused ${email}: Google says the address is not verified`);
+        return false;
+      }
+
+      let person;
+      try {
+        person = await resolvePerson(email);
+      } catch (error) {
+        console.error(`[auth] database error while checking ${email}:`, error);
+        return false;
+      }
+
+      if (!person) {
+        const domain = process.env.ALLOWED_EMAIL_DOMAIN?.toLowerCase().trim();
+        console.warn(
+          `[auth] refused ${email}: not on the allow-list` +
+            (domain
+              ? ` and not on @${domain}. Add them with: npm run people:add -- ${email} staff`
+              : ` and ALLOWED_EMAIL_DOMAIN is not set. Add them with: npm run people:add -- ${email} staff`),
+        );
+        return false;
+      }
+
+      console.log(`[auth] admitted ${email} as ${person.role}`);
 
       await db
         .update(people)

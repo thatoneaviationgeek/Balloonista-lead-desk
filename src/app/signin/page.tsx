@@ -14,10 +14,21 @@ export default async function SignInPage({
         <p>Sign in with your Balloonista Google account.</p>
 
         {error ? (
-          <div className="error" style={{ marginBottom: 20, marginTop: 0, textAlign: "left" }}>
+          <div
+            className="error"
+            role="alert"
+            style={{ marginBottom: 20, marginTop: 0, textAlign: "left" }}
+          >
+            <strong>
+              {error === "AccessDenied"
+                ? "That account is not on the list."
+                : "Sign-in did not complete."}
+            </strong>{" "}
             {error === "AccessDenied"
-              ? "That account is not on the list. Ask Jimmo or Aurelija to add you."
-              : "Sign-in did not complete. Try again."}
+              ? "Ask Jimmo or Aurelija to add you."
+              : "The server log says why — look for a line beginning [auth]."}
+            <br />
+            <span style={{ fontSize: ".78rem", opacity: 0.8 }}>Google reported: {error}</span>
           </div>
         ) : null}
 
