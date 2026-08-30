@@ -18,6 +18,19 @@ the view that answers questions the calendar cannot:
 If a change belongs in the calendar, it goes to the calendar. The panel adds
 the operational layer around it.
 
+## Stages
+
+The build order. Stage references elsewhere in this document point here.
+
+0. **Schema additions** — `calendar_sync_state`, `jobs.sourceUpdatedAt`,
+   `jobs.dismissedAt`/`dismissedBy`, `job_events`. Done, commit `61ff954`.
+1. **Google access layer** — the authorised client behind one function.
+2. **Sync engine** — pure function, idempotent upsert, `syncToken` handling.
+3. **Cron and manual sync** — `/api/cron/calendar`, `CRON_SECRET`, "sync now".
+4. **`/jobs`** — week view, status filter, the unresourced flag.
+5. **Detail, tasks, manual job creation.**
+6. **Acceptance proof** — a script demonstrating the four guarantees.
+
 ## Access to Google — settled
 
 **Decided 29 August 2026: domain-wide delegation.** Both Jimmo and Aurelija hold
@@ -76,6 +89,21 @@ silently skipped and the job would never pick up its calendar link.
   **Confirmed 29 August 2026: the account is on Vercel Pro**, so a 15-minute
   cadence stands as originally planned — the once-a-day cron limit that would
   have forced a rethink applies to Hobby only.
+- **Deployment Protection returns a JSON 401 for API paths on preview
+  deployments.** Confirmed against the v2 preview on 29 August 2026, not
+  predicted: a `POST` to `/api/leads/ingest` came back as
+  `{"error":{"code":"401","message":"Protected deployment"}}` with
+  `vercel_auth_enabled: true`, rejected by Vercel before the route ran. The trap
+  is that this is indistinguishable from our own rejected-ingest-key 401, so a
+  scanner or a cron firing at a protected preview looks exactly like a
+  credentials bug and will be debugged as one.
+
+  When Stage 3 lands, test the cron invocation against the preview **first**,
+  before trusting a green run. If Vercel's own cron turns out not to be exempt
+  from protection on previews, generate a **Protection Bypass for Automation**
+  token and send it as `x-vercel-protection-bypass` — do not disable Deployment
+  Protection to make the sync work. The preview holds real lead data and is not
+  meant to be publicly reachable.
 - Use Google's **incremental sync tokens**, not a full list every run. Fall
   back to a full sync when Google returns 410 Gone.
 - Match on `calendarEventId`. Insert what is new, update what changed, and mark
