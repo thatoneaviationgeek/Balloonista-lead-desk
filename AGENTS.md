@@ -37,9 +37,11 @@ tokens are ported from the v1 static site and should not be redesigned casually.
   boundaries, checked in both light and dark.
 - **`legacy/` is the old static site.** Reference only; do not edit or import it.
 
-**Current work:** Phase 1 (lead desk on Postgres) is done. The brief for the
-next module is `docs/phase-2-jobs-board.md` — read it before starting on jobs,
-calendar sync, or tasks.
+**Current work:** Phase 1 (lead desk on Postgres) is done. Next is
+`docs/phase-2a-pipeline.md` — contacts, activity logging, follow-ups and lead
+feedback, written from Aurelija's own feedback. After that,
+`docs/phase-2-jobs-board.md` for jobs and calendar sync, whose Stage 0 schema
+is already done.
 
 **Before committing:** `npm run typecheck && npm run lint && npm run build`.
 
