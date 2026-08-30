@@ -15,6 +15,13 @@
       "when": 1788023986938,
       "tag": "0001_friendly_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788094836787,
+      "tag": "0002_lyrical_exodus",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
+  date,
   index,
   integer,
   jsonb,
@@ -36,6 +39,44 @@ export const jobEventActionEnum = pgEnum("job_event_action", [
 ]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "doing", "done", "blocked"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "normal", "high"]);
+
+/* ------------------------------------------------ phase 2A: the pipeline   */
+
+export const organisationRelationshipEnum = pgEnum("organisation_relationship", [
+  "direct_client",
+  "venue_partner",
+  "referral_partner",
+  "agency_partner",
+]);
+/* `unknown` rather than NULL: her spreadsheet's leftover `Select` default means
+   "not filled in", and one way of saying that is enough. */
+export const referralPotentialEnum = pgEnum("referral_potential", [
+  "high",
+  "medium",
+  "low",
+  "unknown",
+]);
+export const activityKindEnum = pgEnum("activity_kind", [
+  "email_sent",
+  "email_received",
+  "call",
+  "meeting",
+  "quote_sent",
+  "note",
+]);
+export const followUpStatusEnum = pgEnum("follow_up_status", ["open", "done", "cancelled"]);
+export const feedbackVerdictEnum = pgEnum("feedback_verdict", ["useful", "not_useful"]);
+/* Fixed on purpose. Free text alone drifts to "no" and "not right", which
+   cannot be aggregated into anything a scanner prompt can use. */
+export const feedbackReasonEnum = pgEnum("feedback_reason", [
+  "wrong_location",
+  "wrong_sector",
+  "too_small",
+  "already_client",
+  "bad_timing",
+  "contact_unusable",
+  "other",
+]);
 
 /* ----------------------------------------------------------------- people */
 /* Doubles as the login allow-list: no row, no access. */
@@ -77,6 +118,14 @@ export const leads = pgTable(
     contact: text("contact"),
     role: text("role"),
     src: text("src"),
+
+    /* Set by hand when a scanner lead turns out to belong to an account she is
+       already working. This is a decision, not a fact: it must never appear in
+       the `set` list of the ingest upsert, or a rerun will silently unlink every
+       account she attached. Exactly the same rule as `status` below. */
+    organisationId: uuid("organisation_id").references(() => organisations.id, {
+      onDelete: "set null",
+    }),
 
     status: leadStatusEnum("status").notNull().default("New"),
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
@@ -269,6 +318,215 @@ export const googleAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("google_accounts_person_idx").on(t.personId)],
+);
+
+/* ---------------------------------------------------------- organisations */
+/* The relationships she works over months and years — Harrods, Claridge's,
+   Pinewood. Distinct from `leads`, which holds the one-off moments the scanners
+   find. Linking the two is the point; merging them would damage both. */
+
+export const organisations = pgTable(
+  "organisations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    region: regionEnum("region").notNull().default("UK"),
+    /* Stable key for de-duplication, derived from the normalised name. Her 57
+       rows will be imported more than once before the mapping is right, and
+       without this a second run doubles the list. Mirrors `leads.dedupeKey`. */
+    dedupeKey: text("dedupe_key").notNull(),
+
+    name: text("name").notNull(),
+    sector: text("sector"),
+    tier: integer("tier"),
+    relationship: organisationRelationshipEnum("relationship"),
+    website: text("website"),
+    location: text("location"),
+    referralPotential: referralPotentialEnum("referral_potential").notNull().default("unknown"),
+    estimatedValuePence: integer("estimated_value_pence"),
+    /* Some of these run to several paragraphs of genuine research. Keep whole. */
+    notes: text("notes"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("organisations_region_dedupe_idx").on(t.region, t.dedupeKey),
+    index("organisations_name_idx").on(t.name),
+    check("organisations_tier_range", sql`${t.tier} IS NULL OR ${t.tier} BETWEEN 1 AND 3`),
+  ],
+);
+
+/* -------------------------------------------------------------- contacts */
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    /* Normalised email where there is one, normalised name otherwise. Email
+       first because one organisation often has several named people — her sheet
+       has two at Fortnum's — and a name alone is the weaker key. */
+    dedupeKey: text("dedupe_key").notNull(),
+
+    name: text("name"),
+    jobTitle: text("job_title"),
+    /* Either a real address or NULL — never prose. Her sheet writes "Find her on
+       LinkedIn" into the email column; that is a stated gap, and it belongs in
+       `gap` below so this column stays trustworthy. The CHECK is deliberately
+       loose: it catches prose without pretending to validate an address. */
+    email: text("email"),
+    phone: text("phone"),
+    /* The honest no-contact-found note, same convention as `GAP — …` on a lead.
+       It must survive as a stated gap, not be scrubbed to a blank. */
+    gap: text("gap"),
+    notes: text("notes"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("contacts_org_dedupe_idx").on(t.organisationId, t.dedupeKey),
+    check("contacts_email_shape", sql`${t.email} IS NULL OR ${t.email} LIKE '%@%'`),
+  ],
+);
+
+/* ------------------------------------------------------------ activities */
+/* What a person did. Nothing in this application contacts anyone: these rows
+   record that Aurelija made contact herself, they do not send anything. */
+
+export const activities = pgTable(
+  "activities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: activityKindEnum("kind").notNull(),
+    /* A day, not an instant. "I emailed Emma on 28 August" has no time of day,
+       and a timestamp here invites an off-by-one every time it crosses BST.
+       Read as a string so it never becomes a JS Date at the boundary. */
+    occurredAt: date("occurred_at", { mode: "string" }).notNull(),
+    summary: text("summary").notNull(),
+    actorId: uuid("actor_id").references(() => people.id, { onDelete: "set null" }),
+
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "cascade" }),
+    /* Denormalised on purpose, and set once at write time from the contact's
+       organisation. DO NOT backfill or "correct" this later: if Emma moves from
+       Chain of Hope to another charity, the August email must still read as
+       having gone to Emma at Chain of Hope. This column is history, not a
+       duplicate of the contact's current employer. */
+    organisationId: uuid("organisation_id").references(() => organisations.id, {
+      onDelete: "cascade",
+    }),
+    /* Nulled rather than cascaded when a contact is hard-deleted, so the
+       business record survives without the personal data. The second CHECK
+       below is what makes that always possible. */
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("activities_lead_idx").on(t.leadId),
+    index("activities_org_idx").on(t.organisationId),
+    index("activities_contact_idx").on(t.contactId),
+    index("activities_occurred_idx").on(t.occurredAt),
+    check(
+      "activities_has_link",
+      sql`${t.leadId} IS NOT NULL OR ${t.organisationId} IS NOT NULL OR ${t.contactId} IS NOT NULL`,
+    ),
+    /* This constraint exists so that `ON DELETE SET NULL` on `contact_id` can
+       always succeed, and that is the only reason it exists — it is not
+       reconstructable from the rule it states.
+
+       Hard-deleting a contact nulls this row's `contact_id`. If the contact had
+       been the row's only link, `activities_has_link` above would then be
+       violated, and Postgres would refuse the delete: a deletion request would
+       come back as an unexplained foreign-key error with no obvious cause.
+       Requiring an organisation alongside every contact guarantees a surviving
+       link, so the delete always goes through — the business record stays, and
+       only the personal data goes. Remove this and contact deletion breaks in a
+       way that will take an afternoon to diagnose. */
+    check(
+      "activities_contact_implies_org",
+      sql`${t.contactId} IS NULL OR ${t.organisationId} IS NOT NULL`,
+    ),
+  ],
+);
+
+/* ------------------------------------------------------------- follow_ups */
+
+export const followUps = pgTable(
+  "follow_ups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /* A day, for the same reason as `activities.occurredAt`. */
+    dueAt: date("due_at", { mode: "string" }).notNull(),
+    note: text("note"),
+    status: followUpStatusEnum("status").notNull().default("open"),
+    assigneeId: uuid("assignee_id").references(() => people.id, { onDelete: "set null" }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "cascade" }),
+    organisationId: uuid("organisation_id").references(() => organisations.id, {
+      onDelete: "cascade",
+    }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /* The Due view reads open rows in date order; this is its index. */
+    index("follow_ups_status_due_idx").on(t.status, t.dueAt),
+    index("follow_ups_assignee_idx").on(t.assigneeId),
+    index("follow_ups_lead_idx").on(t.leadId),
+    check(
+      "follow_ups_has_link",
+      sql`${t.leadId} IS NOT NULL OR ${t.organisationId} IS NOT NULL OR ${t.contactId} IS NOT NULL`,
+    ),
+    /* Same reasoning as `activities_contact_implies_org` — see the comment
+       there. It is what lets a contact be hard-deleted without the SET NULL
+       tripping `follow_ups_has_link` and blocking the deletion. */
+    check(
+      "follow_ups_contact_implies_org",
+      sql`${t.contactId} IS NULL OR ${t.organisationId} IS NOT NULL`,
+    ),
+  ],
+);
+
+/* ---------------------------------------------------------- lead_feedback */
+/* Her verdict on whether a scanner lead was worth having. One row per lead per
+   person and updatable — she is allowed to change her mind. */
+
+export const leadFeedback = pgTable(
+  "lead_feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    /* Not nullable: the unique index below is what makes "one per person"
+       enforceable rather than aspirational, and a null actor would defeat it. */
+    actorId: uuid("actor_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+
+    verdict: feedbackVerdictEnum("verdict").notNull(),
+    reason: feedbackReasonEnum("reason"),
+    note: text("note"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lead_feedback_lead_actor_idx").on(t.leadId, t.actorId),
+    /* Not useful has to say why, so the digest can aggregate it. Useful never
+       asks for anything — that is the answer we want more of. */
+    check(
+      "lead_feedback_reason_when_not_useful",
+      sql`${t.verdict} <> 'not_useful' OR ${t.reason} IS NOT NULL`,
+    ),
+  ],
 );
 
 export type Lead = typeof leads.$inferSelect;

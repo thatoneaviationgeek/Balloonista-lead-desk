@@ -79,8 +79,22 @@ vocabulary, WCAG 2.2 AA on anything new, both themes.
   follow-up** (date, with 1 week / 2 weeks / 1 month shortcuts). Logging against
   a contact that does not exist yet should create it inline rather than sending
   her somewhere else first.
-- A **Due** view: overdue, due this week, later. This is the screen she opens in
-  the morning, so it is the one worth getting right.
+- These two sit in the existing `.actions` row and show once a lead is
+  **Approved**, where Approve/Reject have already collapsed to a decision line
+  plus Undo — so the button count never grows and triage stays uncluttered.
+  **On a lead still marked New, show them anyway and confirm explicitly:**
+  "This will mark the lead Approved." Decided 30 August 2026. All 64 leads are
+  currently New, Chain of Hope among them, so hiding the action would hide it
+  exactly where she first needs it — and changing her lead's status silently
+  would be worse. The confirmed status change writes a `lead_events` row like
+  any other, with a note recording that it came from logging contact, so the
+  audit trail says who and why.
+- A **Due** view: **overdue / next 7 days / later**, the 7 days rolling from
+  today. This is the screen she opens in the morning, so it is the one worth
+  getting right. Decided 30 August 2026, replacing "due this week": a calendar
+  week collapses on a Friday, so she would open it to near-nothing while the
+  real workload sat three days out. Rolling is also unambiguous, which "this
+  week" is not.
 - **Useful / Not useful** on each lead. Not-useful asks for a reason from the
   fixed list; useful does not ask for anything. Never make her justify a yes —
   that is the action we want more of.
@@ -92,7 +106,17 @@ Feedback that no scanner ever reads is theatre. This slice includes
 `GET /api/feedback/digest`, authenticated with the existing `INGEST_KEY`,
 returning a compact summary — counts by reason, and a handful of recent
 examples on each side with their reasons — in a form that can be pasted into a
-scanner's prompt.
+scanner's prompt. Structured JSON, with the pasteable block as a `promptText`
+field, so the aggregate stays queryable and the rendering lives in one place
+rather than in four scanner prompts.
+
+**Boundary, decided 30 August 2026.** `INGEST_KEY` is a write credential held by
+the scanners; this endpoint makes it a read credential too, so what it can read
+is drawn deliberately. The digest carries lead-level material only — verdicts,
+reasons, and her free-text notes about the lead. It carries **no contact names,
+email addresses or phone numbers**, ever. Third-party personal data has no
+business in a scanner prompt, and the endpoint is the place to enforce that
+rather than trusting each caller to filter.
 
 Be honest in the UI copy about what this does. The scanners are Claude
 scheduled tasks; nothing is being fine-tuned. Her verdicts make the next run's
@@ -106,6 +130,31 @@ slice records that **a person** made contact; it sends nothing to anyone.
 Reminders are in-panel only for now. A morning digest email to Balloonista staff
 may come later, and if it does, the rule gets amended explicitly first — email
 to staff only, never to a prospect, written down before it is built.
+
+## Deleting a contact
+
+The panel is about to hold third-party personal data — named people at other
+companies, with emails and phone numbers. That is an ordinary business CRM and
+it sits behind a login, so nothing here is wrong. But a contact must be
+genuinely deletable rather than merely hidden, and that is far cheaper to build
+now than to retrofit. Decided 30 August 2026.
+
+- **Hard delete, not a flag.** The row goes. Name, job title, email, phone,
+  notes and gap all go with it.
+- **Activities and follow-ups survive, anonymised** — `contact_id` is
+  `ON DELETE SET NULL`, not cascaded. Deleting a person must not destroy the
+  record that Balloonista contacted that organisation on that date; the
+  organisation-level fact is business history and is not personal data.
+- **This is why `activities_contact_implies_org` exists.** Every activity or
+  follow-up naming a contact also names their organisation, so nulling the
+  contact always leaves a surviving link and can never trip
+  `activities_has_link`. Without it Postgres would refuse the delete outright.
+- **Free text is the part FK rules cannot solve.** A summary reading "Emailed
+  Emma about the gala" still names her. So the delete path is a procedure, not a
+  single statement: it lists every activity and follow-up referencing the
+  contact, hard-deletes the contact, and reports the rows whose free text a
+  person should review. Automatically scrubbing that text would destroy genuine
+  business detail; pretending the problem does not exist would be worse.
 
 ## Not in this slice
 

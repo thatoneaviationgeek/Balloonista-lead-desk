@@ -10,8 +10,10 @@ import { dedupeKeyFor } from "@/lib/leads";
        -H "x-ingest-key: …" -H "content-type: application/json" \
        -d '{"region":"UK","agent":"Film","leads":[…]}'
 
-   Status is never overwritten — once Aurelija has approved or rejected a
-   lead, a rerun of the scanner leaves that decision alone. */
+   Decisions are never overwritten — once Aurelija has approved or rejected a
+   lead, or attached it to an organisation she is already working, a rerun of
+   the scanner leaves that alone. `status` and `organisationId` are hers; only
+   the facts below get refreshed. */
 
 type Incoming = {
   id?: string;
@@ -97,7 +99,10 @@ export async function POST(request: Request) {
         .onConflictDoUpdate({
           target: [leads.region, leads.dedupeKey],
           set: {
-            /* refresh the facts, never the decision */
+            /* Refresh the facts, never the decisions. Nothing that a person set
+               by hand belongs in this list — not `status`, not `statusChangedAt`,
+               and not `organisationId`, which looks like a fact about the lead
+               but is a link she made herself. */
             agent: sql`excluded.agent`,
             title: sql`excluded.title`,
             fit: sql`excluded.fit`,
