@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import FollowUpDialog from "./follow-up-dialog";
 import LogContactDialog from "./log-contact-dialog";
 import { isGap, type LeadStatus, type LeadView } from "@/lib/leads";
@@ -42,6 +42,9 @@ export default function LeadCard({
   const [askingReason, setAskingReason] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  /* Choosing a reason closes the chip row it was in, so focus has to be put
+     back deliberately or it falls to <body>. */
+  const notUsefulButton = useRef<HTMLButtonElement>(null);
 
   const overdue = lead.followUp ? lead.followUp.dueAt < todayInLondon() : false;
 
@@ -59,6 +62,7 @@ export default function LeadCard({
         throw new Error(payload.error || `Server said ${res.status}`);
       }
       setAskingReason(false);
+      notUsefulButton.current?.focus();
       onChanged();
     } catch (e) {
       setFeedbackError(e instanceof Error ? e.message : "Could not save that.");
@@ -164,6 +168,7 @@ export default function LeadCard({
               Useful
             </button>
             <button
+              ref={notUsefulButton}
               className="chip"
               type="button"
               aria-pressed={lead.feedback?.verdict === "not_useful"}

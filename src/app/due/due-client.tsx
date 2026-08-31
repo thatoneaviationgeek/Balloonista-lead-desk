@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { addDays } from "@/lib/dates";
 import type { DueItem, DueList } from "@/lib/due";
 
@@ -46,6 +46,12 @@ export default function DueClient({ initial, scope }: { initial: DueList; scope:
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const today = initial.today;
+  /* Completing a follow-up unmounts its row, which would drop focus to <body>
+     and lose a keyboard user's place entirely. Park it on the group heading
+     instead — the nearest thing that is still on screen and describes where
+     they are. */
+  const headings = useRef<Record<string, HTMLHeadingElement | null>>({});
+  const lastBucket = useRef<string>("overdue");
 
   async function send(id: string, body: Record<string, unknown>) {
     setBusyId(id);
@@ -63,6 +69,7 @@ export default function DueClient({ initial, scope }: { initial: DueList; scope:
         throw new Error(payload.error || `Server said ${res.status}`);
       }
       setOffering(null);
+      headings.current[lastBucket.current]?.focus();
     } catch (e) {
       setItems(before);
       setError(e instanceof Error ? e.message : "Could not save that. Try again.");
@@ -107,7 +114,14 @@ export default function DueClient({ initial, scope }: { initial: DueList; scope:
       {buckets.map((bucket) =>
         bucket.items.length === 0 ? null : (
           <section key={bucket.key} className="due-group" aria-labelledby={`h-${bucket.key}`}>
-            <h2 id={`h-${bucket.key}`} className="due-head">
+            <h2
+              id={`h-${bucket.key}`}
+              className="due-head"
+              tabIndex={-1}
+              ref={(el) => {
+                headings.current[bucket.key] = el;
+              }}
+            >
               {bucket.title}
               <span className="due-count">{bucket.items.length}</span>
             </h2>
@@ -155,12 +169,13 @@ export default function DueClient({ initial, scope }: { initial: DueList; scope:
                           type="button"
                           autoFocus={i === 0}
                           disabled={busyId === item.id}
-                          onClick={() =>
+                          onClick={() => {
+                            lastBucket.current = bucket.key;
                             send(item.id, {
                               status: "done",
                               next: { dueAt: addDays(today, opt.days), note: item.note },
-                            })
-                          }
+                            });
+                          }}
                         >
                           {opt.label}
                         </button>
@@ -169,7 +184,10 @@ export default function DueClient({ initial, scope }: { initial: DueList; scope:
                         className="btn"
                         type="button"
                         disabled={busyId === item.id}
-                        onClick={() => send(item.id, { status: "done" })}
+                        onClick={() => {
+                          lastBucket.current = bucket.key;
+                          send(item.id, { status: "done" });
+                        }}
                       >
                         Done for now
                       </button>
@@ -188,7 +206,10 @@ export default function DueClient({ initial, scope }: { initial: DueList; scope:
                         className="btn"
                         type="button"
                         disabled={busyId === item.id}
-                        onClick={() => send(item.id, { status: "cancelled" })}
+                        onClick={() => {
+                          lastBucket.current = bucket.key;
+                          send(item.id, { status: "cancelled" });
+                        }}
                       >
                         Cancel
                       </button>
