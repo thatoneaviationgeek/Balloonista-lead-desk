@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import type { AppRole } from "@/auth";
+import type { WriteResult } from "./pipeline-writes";
 
 /**
  * Defence in depth for a route handler.
@@ -52,6 +53,19 @@ export async function readJson(request: Request): Promise<Record<string, unknown
 
 export function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
+}
+
+/** Turns a write function's result into a response. Keeps the handlers to
+ *  auth, parse, call, respond — everything worth testing lives in the
+ *  functions in `pipeline-writes.ts`. */
+export function respond<T extends object>(result: WriteResult<T>) {
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error, ...(result.code ? { code: result.code } : {}) },
+      { status: result.status },
+    );
+  }
+  return NextResponse.json({ ok: true, ...result.data });
 }
 
 /** Trimmed string, or null when absent or blank. */
