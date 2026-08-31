@@ -279,7 +279,12 @@ export const tasks = pgTable(
     title: text("title").notNull(),
     jobId: uuid("job_id").references(() => jobs.id, { onDelete: "cascade" }),
     assigneeId: uuid("assignee_id").references(() => people.id, { onDelete: "set null" }),
-    dueAt: timestamp("due_at", { withTimezone: true }),
+    /* A day, not an instant — the same reasoning as `follow_ups.dueAt`. "Due
+       Thursday" has no time of day, and a timestamp invites an off-by-one every
+       time it crosses BST. Changed while `tasks` was still empty; once the jobs
+       board writes rows this would need a data migration rather than a type
+       change. */
+    dueAt: date("due_at", { mode: "string" }),
     priority: taskPriorityEnum("priority").notNull().default("normal"),
     status: taskStatusEnum("status").notNull().default("todo"),
     notes: text("notes"),

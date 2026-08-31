@@ -71,6 +71,14 @@ migration — no new migration needed to start. Fields worth noting:
 - `leadId` — set when a job came from an approved lead.
 - `status` — enquiry → quoted → confirmed → delivered → invoiced (or cancelled).
 - `valuePence` — integer minor units, never a float.
+- `tasks.dueAt` is a **`date`**, not a timestamp. Changed 31 August 2026, while
+  `tasks` was still empty, to match `follow_ups.dueAt` in the Phase 2A pipeline:
+  "due Thursday" is a day, not an instant, and a timestamp invites an
+  off-by-one every time it crosses BST. It was the one non-additive migration
+  in the project — `ALTER COLUMN … SET DATA TYPE date` — and it was free only
+  because no rows existed yet. Once the jobs board writes tasks, the same change
+  would need a data migration. Read and write it through the helpers in
+  `src/lib/dates.ts`.
 
 Likely additions once the sync is real: a `calendar_sync_state` table holding
 Google's incremental `syncToken` per calendar, and `sourceUpdatedAt` on `jobs`
