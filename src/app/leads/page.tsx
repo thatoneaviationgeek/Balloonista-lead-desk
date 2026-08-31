@@ -60,7 +60,7 @@ export default async function LeadsPage({
 
   return (
     <>
-      <AppBar />
+      <AppBar current="leads" />
       <div className="wrap">
         <header className="top">
           <nav className="regionnav" aria-label="Region">

@@ -33,6 +33,7 @@ import {
   type Writer,
   type WriteResult,
 } from "../lib/pipeline-writes";
+import { countOverdueForPerson, listDue } from "../lib/due";
 import { db } from "../db";
 import {
   activities,
@@ -286,9 +287,41 @@ async function main() {
       .from(organisations)
       .where(eq(organisations.dedupeKey, probeKey));
     check("and the first write rolled back with it", probe[0].n === 0, `found ${probe[0].n}`);
+
+    /* 9 ------------------------------------------------- the Due view reads */
+    console.log("\n9. Due buckets, against real rows");
+    const mk = async (days: number) => {
+      const r = await createFollowUp(writer, { dueAt: addDays(TODAY, days), contactId });
+      if (!r.ok) throw new Error(r.error);
+      return r.data.id;
+    };
+    const lateId = await mk(-1);
+    const soonId = await mk(3);
+    const edgeId = await mk(7);
+    const laterId = await mk(8);
+
+    const list = await listDue(actor.id, "mine");
+    check("today is London's today", list.today === TODAY, list.today);
+    check("yesterday is overdue", list.overdue.some((i) => i.id === lateId));
+    check("in 3 days is in the next 7", list.next7.some((i) => i.id === soonId));
+    check("day 7 is the last one inside", list.next7.some((i) => i.id === edgeId));
+    check("day 8 has tipped into later", list.later.some((i) => i.id === laterId));
+    check("the subject falls back to the contact name",
+      list.overdue.find((i) => i.id === lateId)?.subject?.includes("TEST CONTACT") === true,
+      list.overdue.find((i) => i.id === lateId)?.subject);
+    check("completed follow-ups are not listed",
+      !list.overdue.concat(list.next7, list.later).some((i) => i.id === created.data.id));
+
+    const overdueCount = await countOverdueForPerson(actor.id);
+    check("the app bar count matches the overdue bucket",
+      overdueCount === list.overdue.length, `count ${overdueCount}, bucket ${list.overdue.length}`);
+
+    const everyone = await listDue(actor.id, "all");
+    check("scope all is a superset of mine", everyone.total >= list.total,
+      `all ${everyone.total}, mine ${list.total}`);
   } finally {
-    /* 9 ---------------------------------------------------------- tidy up */
-    console.log("\n9. Cleaning up");
+    /* 10 --------------------------------------------------------- tidy up */
+    console.log("\n10. Cleaning up");
     const taggedLeads = await db.select({ id: leads.id, k: leads.dedupeKey }).from(leads)
       .where(like(leads.dedupeKey, `${TAG}%`));
     const taggedOrgs = await db.select({ id: organisations.id, k: organisations.dedupeKey })

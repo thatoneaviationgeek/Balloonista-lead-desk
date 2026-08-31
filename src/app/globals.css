@@ -227,3 +227,73 @@ footer p { max-width:72ch; }
 }
 .signin-btn:hover { filter:brightness(1.08); }
 .signin-btn:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+
+/* ----------------------------------------------------------- app bar nav --- */
+.sr-only {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+.abnav { display:flex; gap:4px; }
+.abnav a {
+  display:inline-flex; align-items:center; gap:7px;
+  font-size:.85rem; font-weight:600; text-decoration:none; color:var(--ink-2);
+  border:1px solid transparent; border-radius:8px;
+  /* 2.2 AA target size: comfortably past 24x24 with the font at .85rem. */
+  padding:7px 13px; min-height:34px;
+}
+.abnav a:hover { color:var(--ink); border-color:var(--rule-2); }
+.abnav a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.abnav a[aria-current="page"] {
+  background:var(--accent-soft); color:var(--ink); border-color:var(--rule-2);
+}
+.ab-badge {
+  font-family:"IBM Plex Mono",monospace; font-size:.72rem; font-weight:700;
+  background:var(--no-bg); color:var(--no-ink); border:1px solid var(--no-ink);
+  border-radius:99px; padding:1px 7px; line-height:1.5;
+}
+
+/* ---------------------------------------------------------------- due --- */
+.due-group { margin:26px 0 0; }
+.due-head {
+  display:flex; align-items:center; gap:9px;
+  font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;
+  font-size:1rem; font-weight:700; letter-spacing:-.01em; color:var(--ink);
+  margin:0 0 11px; padding-bottom:8px; border-bottom:1px solid var(--rule);
+}
+.due-count {
+  font-family:"IBM Plex Mono",monospace; font-size:.75rem; font-weight:600;
+  background:var(--surface-2); color:var(--ink-2); border-radius:99px; padding:2px 9px;
+}
+.due-list { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+.due-item {
+  background:var(--surface); border:1px solid var(--rule); border-radius:10px;
+  box-shadow:var(--shadow); padding:14px 16px;
+  display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;
+}
+.due-item.is-overdue { border-left:3px solid var(--no-ink); }
+.due-item.busy { opacity:.6; }
+.due-main { flex:1 1 260px; min-width:0; }
+.due-subject { margin:0; font-weight:600; font-size:.95rem; color:var(--ink); }
+.due-subject a { color:inherit; text-decoration:none; border-bottom:1px solid var(--rule-2); }
+.due-subject a:hover { border-bottom-color:var(--accent); }
+.due-subject a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.due-context { margin:2px 0 0; font-size:.85rem; color:var(--ink-3); }
+.due-note { margin:7px 0 0; font-size:.88rem; color:var(--ink-2); max-width:62ch; }
+.due-when { margin:9px 0 0; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.due-late { font-size:.8rem; font-weight:600; color:var(--no-ink); }
+.due-who { font-size:.8rem; color:var(--ink-3); }
+.due-item .actions { margin:0; flex:0 0 auto; display:flex; gap:8px; align-items:flex-start; }
+.due-next {
+  flex:1 1 100%; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  background:var(--accent-soft); border:1px solid var(--rule-2);
+  border-radius:8px; padding:10px 12px;
+}
+.due-next-ask { font-size:.86rem; font-weight:600; color:var(--ink); margin-right:2px; }
+
+/* Nothing due should read as calm, not as broken or empty-of-results. */
+.due-clear { text-align:center; padding:64px 20px 56px; }
+.due-clear-line {
+  font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;
+  font-size:1.4rem; font-weight:700; letter-spacing:-.015em; color:var(--ink); margin:0;
+}
+.due-clear-sub { margin:8px auto 0; font-size:.92rem; color:var(--ink-3); max-width:44ch; }
