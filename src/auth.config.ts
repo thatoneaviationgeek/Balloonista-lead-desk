@@ -13,6 +13,11 @@ export const PUBLIC_PATHS = [
   "/signin",
   "/api/leads/ingest",
   "/api/health",
+  /* Read by the scanners with the same INGEST_KEY they post with. Without this
+     the proxy bounces it to /signin and the scanner sees a sign-in page instead
+     of the digest — the same failure the /api/auth note above warns about. It
+     checks the key itself, since the proxy no longer guards it. */
+  "/api/feedback/digest",
 ];
 
 export default {

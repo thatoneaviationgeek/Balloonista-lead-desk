@@ -33,6 +33,7 @@ import {
   type Writer,
   type WriteResult,
 } from "../lib/pipeline-writes";
+import { buildDigest } from "../lib/digest";
 import { countOverdueForPerson, listDue } from "../lib/due";
 import { db } from "../db";
 import {
@@ -319,9 +320,36 @@ async function main() {
     const everyone = await listDue(actor.id, "all");
     check("scope all is a superset of mine", everyone.total >= list.total,
       `all ${everyone.total}, mine ${list.total}`);
+
+    /* 10 ------------------------------------ the digest, and what it may not say */
+    console.log("\n10. Feedback digest");
+    await recordFeedback(writer, leadId, {
+      verdict: "not_useful", reason: "wrong_sector", note: "Test note for the digest",
+    });
+    const digest = await buildDigest({ agent: null, region: null, since: null });
+    check("counts the rejection", digest.totals.notUseful >= 1, String(digest.totals.notUseful));
+    check("groups it by reason",
+      digest.byReason.some((r) => r.reason === "wrong_sector"), JSON.stringify(digest.byReason));
+    check("breaks down by scanner", digest.byAgent.some((a) => a.agent === "Events"));
+    check("includes it as an example",
+      digest.examples.notUseful.some((e) => e.title.includes(TAG)));
+    check("renders a pasteable block",
+      digest.promptText.includes("Why leads were rejected"), digest.promptText.slice(0, 60));
+
+    /* The boundary that matters: INGEST_KEY now reads as well as writes, and
+       third-party personal data has no business in a scanner prompt. */
+    const serialised = JSON.stringify(digest);
+    check("no contact email anywhere in the digest",
+      !serialised.includes("@example.invalid"));
+    check("no contact name anywhere in the digest",
+      !serialised.includes("TEST CONTACT"));
+    check("no lead contact field either",
+      !serialised.includes("GAP — synthetic test row"));
+    check("her own note on the lead does survive",
+      serialised.includes("Test note for the digest"));
   } finally {
-    /* 10 --------------------------------------------------------- tidy up */
-    console.log("\n10. Cleaning up");
+    /* 11 --------------------------------------------------------- tidy up */
+    console.log("\n11. Cleaning up");
     const taggedLeads = await db.select({ id: leads.id, k: leads.dedupeKey }).from(leads)
       .where(like(leads.dedupeKey, `${TAG}%`));
     const taggedOrgs = await db.select({ id: organisations.id, k: organisations.dedupeKey })
