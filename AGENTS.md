@@ -36,6 +36,19 @@ tokens are ported from the v1 static site and should not be redesigned casually.
 - **WCAG 2.2 AA.** Any colour pair you add: ≥4.5:1 for text, ≥3:1 for UI component
   boundaries, checked in both light and dark.
 - **`legacy/` is the old static site.** Reference only; do not edit or import it.
+- **No read-then-decide-then-write.** The app reaches Neon over HTTP
+  (`drizzle-orm/neon-http`), which has no interactive transactions:
+  `db.transaction()` throws outright. `db.batch()` *is* supported and Neon runs
+  it as a single atomic transaction, but nothing can be read back mid-batch. So
+  the shape is always the same — read what you need, mint any new ids with
+  `randomUUID()`, then commit every write in one `db.batch()`. Where two callers
+  could race, let a unique constraint settle it rather than checking for
+  existence first and trusting the gap: `onConflictDoUpdate` against a dedupe
+  key, the way `/api/leads/ingest` does on `(region, dedupeKey)` and the
+  organisation and contact keys do on theirs. This is a choice rather than a
+  wall — the Neon WebSocket driver (`drizzle-orm/neon-serverless`) does support
+  interactive transactions — so if something genuinely needs one, move that path
+  onto it deliberately instead of working around the limit.
 
 **Current work:** Phase 1 (lead desk on Postgres) is done. Next is
 `docs/phase-2a-pipeline.md` — contacts, activity logging, follow-ups and lead
