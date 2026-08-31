@@ -4,6 +4,7 @@ import AppBar from "@/components/app-bar";
 import LeadsClient from "./leads-client";
 import { auth } from "@/auth";
 import { db } from "@/db";
+import { loadLeadExtras } from "@/lib/lead-extras";
 import { leads as leadsTable } from "@/db/schema";
 import type { LeadView } from "@/lib/leads";
 
@@ -35,6 +36,12 @@ export default async function LeadsPage({
     .where(and(eq(leadsTable.region, region)))
     .orderBy(desc(leadsTable.lastSeenAt));
 
+  /* Three queries for the whole page rather than one per card. */
+  const extras = await loadLeadExtras(
+    rows.map((r) => r.id),
+    session.user.id,
+  );
+
   const leads: LeadView[] = rows.map((r) => ({
     id: r.id,
     region: r.region,
@@ -51,6 +58,10 @@ export default async function LeadsPage({
     status: r.status,
     statusChangedAt: r.statusChangedAt ? r.statusChangedAt.toISOString() : null,
     notes: r.notes,
+    organisationId: r.organisationId,
+    activities: extras.activities.get(r.id) ?? [],
+    followUp: extras.followUp.get(r.id) ?? null,
+    feedback: extras.feedback.get(r.id) ?? null,
   }));
 
   const newest = rows.reduce<Date | null>(

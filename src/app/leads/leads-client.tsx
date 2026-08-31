@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import LeadCard from "@/components/lead-card";
 import { AGENT_LABEL, FIT_ORDER, type LeadStatus, type LeadView } from "@/lib/leads";
 
@@ -15,6 +16,7 @@ export default function LeadsClient({
   canDecide: boolean;
   region: "UK" | "Dubai";
 }) {
+  const router = useRouter();
   const [leads, setLeads] = useState(initialLeads);
   const [agent, setAgent] = useState("All");
   const [fit, setFit] = useState("All");
@@ -198,6 +200,9 @@ export default function LeadsClient({
               canDecide={canDecide}
               busy={busyId === l.id}
               onDecide={decide}
+              /* Logging contact or setting a follow-up changes rows this page
+                 read on the server, so re-read rather than guessing locally. */
+              onChanged={() => router.refresh()}
             />
           ))
         ) : (
