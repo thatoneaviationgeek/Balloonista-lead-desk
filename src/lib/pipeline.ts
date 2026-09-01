@@ -89,3 +89,42 @@ export function contactDedupeKey(input: { email?: string | null; name?: string |
 export function looksLikeEmail(value: string) {
   return value.includes("@");
 }
+
+/**
+ * What Log contact and Set follow-up are being written against.
+ *
+ * The write paths already take a leadId or an organisationId, so pointing the
+ * dialogs at an organisation is a matter of saying which — not new logic. Only
+ * a lead can carry the approval question, because only a lead has a status to
+ * approve.
+ */
+export type WriteSubject =
+  | {
+      kind: "lead";
+      id: string;
+      title: string;
+      region: "UK" | "Dubai";
+      /* Set when the lead has already been attached to an account. */
+      organisationId: string | null;
+    }
+  | { kind: "organisation"; id: string; title: string };
+
+/** The links to send for a subject. */
+export function subjectLinks(subject: WriteSubject) {
+  return subject.kind === "lead"
+    ? { leadId: subject.id, ...(subject.organisationId ? { organisationId: subject.organisationId } : {}) }
+    : { organisationId: subject.id };
+}
+
+export const ORG_RELATIONSHIP_LABEL: Record<string, string> = {
+  direct_client: "Direct client",
+  venue_partner: "Venue partner",
+  referral_partner: "Referral partner",
+  agency_partner: "Agency partner",
+};
+
+export const ORG_CONTACT_STATUS_LABEL: Record<string, string> = {
+  not_contacted: "Not contacted",
+  initial_email_sent: "Emailed",
+  have_a_contact: "Have a contact",
+};

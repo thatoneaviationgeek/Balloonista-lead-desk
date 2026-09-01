@@ -1,7 +1,11 @@
 import { auth, signOut } from "@/auth";
 import { countOverdueForPerson } from "@/lib/due";
 
-export default async function AppBar({ current }: { current?: "leads" | "due" }) {
+export default async function AppBar({
+  current,
+}: {
+  current?: "leads" | "due" | "organisations";
+}) {
   const session = await auth();
   if (!session?.user) return null;
 
@@ -17,6 +21,12 @@ export default async function AppBar({ current }: { current?: "leads" | "due" })
         <nav className="abnav" aria-label="Sections">
           <a href="/leads" aria-current={current === "leads" ? "page" : undefined}>
             Leads
+          </a>
+          <a
+            href="/organisations"
+            aria-current={current === "organisations" ? "page" : undefined}
+          >
+            Organisations
           </a>
           <a href="/due" aria-current={current === "due" ? "page" : undefined}>
             Due

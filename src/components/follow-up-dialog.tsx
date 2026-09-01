@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Modal from "./modal";
 import { addDays, todayInLondon } from "@/lib/dates";
-import type { LeadView } from "@/lib/leads";
+import { subjectLinks, type WriteSubject } from "@/lib/pipeline";
 
 const SHORTCUTS = [
   { label: "1 week", days: 7 },
@@ -20,11 +20,11 @@ const SHORTCUTS = [
  * than three opaque buttons.
  */
 export default function FollowUpDialog({
-  lead,
+  subject,
   onClose,
   onSet,
 }: {
-  lead: LeadView;
+  subject: WriteSubject;
   onClose: () => void;
   onSet: (followUp: { id: string; dueAt: string; note: string | null }) => void;
 }) {
@@ -44,8 +44,7 @@ export default function FollowUpDialog({
         body: JSON.stringify({
           dueAt,
           note: note.trim() || null,
-          leadId: lead.id,
-          ...(lead.organisationId ? { organisationId: lead.organisationId } : {}),
+          ...subjectLinks(subject),
         }),
       });
       const payload = await res.json().catch(() => ({}));
@@ -62,7 +61,7 @@ export default function FollowUpDialog({
   return (
     <Modal
       title="Set a follow-up"
-      description={`Against “${lead.title}”. It will appear in Due, and nothing is sent to anyone.`}
+      description={`Against “${subject.title}”. It will appear in Due, and nothing is sent to anyone.`}
       onClose={onClose}
     >
       <form

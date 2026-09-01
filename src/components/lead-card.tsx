@@ -10,6 +10,7 @@ import {
   FEEDBACK_REASONS,
   FEEDBACK_REASON_LABEL,
   type FeedbackReason,
+  type WriteSubject,
 } from "@/lib/pipeline";
 
 /* Noon UTC is the same calendar day in London all year, so a date-only string
@@ -47,6 +48,14 @@ export default function LeadCard({
   const notUsefulButton = useRef<HTMLButtonElement>(null);
 
   const overdue = lead.followUp ? lead.followUp.dueAt < todayInLondon() : false;
+
+  const subject: WriteSubject = {
+    kind: "lead",
+    id: lead.id,
+    title: lead.title,
+    region: lead.region,
+    organisationId: lead.organisationId,
+  };
 
   async function sendFeedback(verdict: "useful" | "not_useful", reason?: FeedbackReason) {
     setSavingFeedback(true);
@@ -261,10 +270,10 @@ export default function LeadCard({
       ) : null}
 
       {dialog === "log" ? (
-        <LogContactDialog lead={lead} onClose={() => setDialog(null)} onLogged={onChanged} />
+        <LogContactDialog subject={subject} onClose={() => setDialog(null)} onLogged={onChanged} />
       ) : null}
       {dialog === "follow" ? (
-        <FollowUpDialog lead={lead} onClose={() => setDialog(null)} onSet={onChanged} />
+        <FollowUpDialog subject={subject} onClose={() => setDialog(null)} onSet={onChanged} />
       ) : null}
     </article>
   );

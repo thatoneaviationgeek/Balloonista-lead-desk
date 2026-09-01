@@ -366,3 +366,49 @@ footer p { max-width:72ch; }
 .shortcuts { display:flex; gap:6px; flex-wrap:wrap; }
 .modal-actions { margin:18px 0 0; display:flex; gap:9px; flex-wrap:wrap; }
 
+/* ------------------------------------------------------ organisations --- */
+/* Tier reuses the fit palette rather than introducing three more colours:
+   same tokens, so the same contrast already checked in both themes. */
+.t-tier-1 { background:var(--high-bg); color:var(--high-ink); }
+.t-tier-2 { background:var(--med-bg); color:var(--med-ink); }
+.t-tier-3 { background:var(--low-bg); color:var(--low-ink); }
+
+.org-meta { margin:0; font-size:.86rem; color:var(--ink-3); }
+.org-meta a { color:var(--ink-2); }
+
+.org-toggle {
+  font:inherit; font-size:.83rem; font-weight:600; cursor:pointer;
+  background:none; border:0; color:var(--ink-2); text-align:left;
+  display:inline-flex; align-items:center; gap:9px; flex-wrap:wrap;
+  padding:8px 4px; min-height:34px; border-radius:6px; margin:12px 0 0;
+}
+.org-toggle::before { content:"▸"; font-size:.7rem; color:var(--ink-3); }
+.org-toggle[aria-expanded="true"]::before { content:"▾"; }
+.org-toggle:hover { color:var(--ink); }
+.org-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.org-toggle-counts { font-weight:500; color:var(--ink-3); font-size:.82rem; }
+
+.org-detail {
+  margin:10px 0 0; border-top:1px solid var(--rule); padding-top:14px;
+  display:grid; gap:18px;
+}
+.org-section h4 {
+  margin:0 0 8px; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:700;
+}
+.org-contacts { list-style:none; margin:0; padding:0; display:grid; gap:9px; }
+.org-contacts li {
+  display:flex; gap:10px; flex-wrap:wrap; align-items:baseline;
+  font-size:.88rem; border-left:2px solid var(--rule); padding:2px 0 2px 11px;
+}
+.oc-name { font-weight:600; color:var(--ink); }
+.oc-role { color:var(--ink-3); font-size:.83rem; }
+.oc-email { color:var(--ink-2); }
+.oc-phone { color:var(--ink-2); font-family:"IBM Plex Mono",monospace; font-size:.8rem; }
+.oc-gap { font-size:.83rem; }
+
+/* Her research, whole. Never clipped to a preview line — several of these
+   entries are the actual thinking behind an account. */
+.org-notes { display:grid; gap:10px; }
+.org-notes p { margin:0; font-size:.9rem; color:var(--ink-2); max-width:74ch; white-space:pre-wrap; }
+

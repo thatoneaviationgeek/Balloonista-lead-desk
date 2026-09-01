@@ -3,8 +3,13 @@
 import { useState } from "react";
 import Modal from "./modal";
 import { todayInLondon } from "@/lib/dates";
-import { ACTIVITY_KINDS, ACTIVITY_KIND_LABEL, type ActivityKind } from "@/lib/pipeline";
-import type { LeadView } from "@/lib/leads";
+import {
+  ACTIVITY_KINDS,
+  ACTIVITY_KIND_LABEL,
+  subjectLinks,
+  type ActivityKind,
+  type WriteSubject,
+} from "@/lib/pipeline";
 
 /**
  * Record that she made contact. Nothing here sends anything — it writes down
@@ -16,11 +21,11 @@ import type { LeadView } from "@/lib/leads";
  * her.
  */
 export default function LogContactDialog({
-  lead,
+  subject,
   onClose,
   onLogged,
 }: {
-  lead: LeadView;
+  subject: WriteSubject;
   onClose: () => void;
   onLogged: (result: { leadApproved: boolean }) => void;
 }) {
@@ -35,8 +40,13 @@ export default function LogContactDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /* Set when the API answers 409: the lead is still New and logging contact
-     will approve it. She is asked before it happens, never after. */
+     will approve it. She is asked before it happens, never after. Only a lead
+     can raise this — an organisation has no status to approve. */
   const [confirmApproval, setConfirmApproval] = useState(false);
+
+  /* An organisation subject already is the organisation. A lead only needs one
+     when it has not been attached to an account yet. */
+  const needsOrganisation = subject.kind === "lead" && !subject.organisationId;
 
   async function submit(approveLead: boolean) {
     setBusy(true);
@@ -49,13 +59,16 @@ export default function LogContactDialog({
           kind,
           occurredAt,
           summary,
-          leadId: lead.id,
+          ...subjectLinks(subject),
           ...(approveLead ? { approveLead: true } : {}),
-          ...(lead.organisationId
-            ? { organisationId: lead.organisationId }
-            : organisation.trim()
-              ? { newOrganisation: { name: organisation.trim(), region: lead.region } }
-              : {}),
+          ...(needsOrganisation && organisation.trim()
+            ? {
+                newOrganisation: {
+                  name: organisation.trim(),
+                  region: subject.kind === "lead" ? subject.region : "UK",
+                },
+              }
+            : {}),
           ...(contactName.trim() || email.trim() || gap.trim()
             ? {
                 newContact: {
@@ -88,7 +101,7 @@ export default function LogContactDialog({
     return (
       <Modal
         title="This will approve the lead"
-        description={`“${lead.title}” is still awaiting review. Logging contact against it will mark it Approved, because a lead you have emailed is one you have decided to pursue.`}
+        description={`“${subject.title}” is still awaiting review. Logging contact against it will mark it Approved, because a lead you have emailed is one you have decided to pursue.`}
         onClose={onClose}
       >
         {error ? (
@@ -108,12 +121,10 @@ export default function LogContactDialog({
     );
   }
 
-  const needsOrganisation = !lead.organisationId;
-
   return (
     <Modal
       title="Log contact"
-      description={`Against “${lead.title}”. This records what you did — it does not send anything.`}
+      description={`Against “${subject.title}”. This records what you did — it does not send anything.`}
       onClose={onClose}
     >
       <form
