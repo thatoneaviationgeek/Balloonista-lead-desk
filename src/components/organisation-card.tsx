@@ -46,6 +46,8 @@ export default function OrganisationCard({
     <article className="card org-card">
       <div className="card-top">
         <h3>{org.name}</h3>
+        {/* Tier shares the fit palette — see the warning in globals.css. Safe
+            only while tier and fit never appear on the same card. */}
         {org.tier ? <span className={"tag t-tier-" + org.tier}>Tier {org.tier}</span> : null}
         {org.relationship ? (
           <span className="tag t-agent">{ORG_RELATIONSHIP_LABEL[org.relationship]}</span>

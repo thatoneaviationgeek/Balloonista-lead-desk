@@ -41,6 +41,7 @@ import { db } from "../db";
 import {
   activities as activitiesTable,
   contacts as contactsTable,
+  followUps as followUpsTable,
   organisations as organisationsTable,
 } from "../db/schema";
 
@@ -225,6 +226,11 @@ type PlannedOrganisation = {
      deliberately not imported for that reason. */
   lastContact: string | null;
   nextAction: string | null;
+  /* Her `Follow Up Date`. Imported as a *completed* follow-up: the dates are in
+     July and treating them as open would put them on the Due screen now reading
+     as overdue, when they have long since been dealt with. Dropping them
+     instead would lose the history. Completed keeps both. */
+  followUpDate: string | null;
 };
 
 type PlannedContact = {
@@ -349,6 +355,7 @@ async function main() {
       notesChars: notes ? notes.length : 0,
       lastContact: readDate(clean(raw[C.lastContact])).iso,
       nextAction: clean(raw[C.nextAction]),
+      followUpDate: readDate(clean(raw[C.followUp])).iso,
     });
 
     /* --- the person, if there is one --- */
@@ -455,15 +462,20 @@ async function main() {
   say("`Opportunity` and `Contact Status` are now mapped — to `relationship` and `contact_status`");
   say("respectively. `Opportunity` was listed here as unmappable in the first dry run; that was");
   say("wrong. Its four values are exactly the relationship enum, 23/18/14/2 across all 57 rows.");
-  say("`Last Contact` is mapped too, as one activity per organisation that has a date.");
+  say("`Last Contact` is mapped as one activity per organisation that has a date, carrying her");
+  say("`Next Action` text in the summary. `Follow Up Date` is mapped as a follow-up already marked");
+  say("done — completed rather than open, so the history is kept without July dates appearing on");
+  say("the Due screen today as overdue.");
   say();
   say("Still not imported, deliberately:");
   say();
-  say("- `Lead Score` — filled on 4 rows out of 57 and overlapping with `tier`; mapping it would");
-  say("  create a second answer to the same question.");
-  say("- `Follow Up Date` — parses cleanly but is deliberately not imported. Only 2 rows carry one,");
-  say("  both dated July, and a July date would appear on the Due screen now reading as overdue");
-  say("  when it is a record of something already dealt with. Set follow-ups from the panel.");
+  say("**`Lead Score` is dropped, deliberately.** It is filled on 4 of 57 rows, every one of them");
+  say("the value 6, and it says what `tier` already says. Importing a column that is 93% empty");
+  say("and duplicates another would give one question two answers that can disagree. If it turns");
+  say("out to mean something `tier` does not, it can be added later — the source file still has it.");
+  say();
+  say("Still not imported:");
+  say("- `Lead Score` is the only column dropped outright — see above.");
   say("- `Next Action` — carried, but as part of the activity summary rather than its own column.");
   say("- `Tier Key` — a legend beside the data, not a record.");
 
@@ -590,9 +602,37 @@ async function applyPlan(orgs: PlannedOrganisation[], people: PlannedContact[]) 
     });
   }
 
+  /* `Follow Up Date` becomes a follow-up already marked done. `completedAt` is
+     left null rather than guessed: the spreadsheet records that a follow-up was
+     set, not when it was actioned, and inventing a timestamp to fill the column
+     would be worse than an honest gap. Done rows never reach the Due view,
+     which filters on open — so the history is kept without July dates showing
+     up as overdue today. */
+  const followUpInserts: (typeof followUpsTable.$inferInsert)[] = [];
+  for (const o of orgs) {
+    if (!o.followUpDate) continue;
+    const organisationId = orgIdByKey.get(o.dedupeKey);
+    if (!organisationId || !newOrgIds.has(organisationId)) continue;
+    followUpInserts.push({
+      id: randomUUID(),
+      dueAt: o.followUpDate,
+      note: "Follow-up recorded in the pipeline spreadsheet",
+      status: "done",
+      completedAt: null,
+      assigneeId: null,
+      organisationId,
+      contactId: contactIdByOrg.get(organisationId) ?? null,
+    });
+  }
+
   console.log(`\nimport batch: ${batch}`);
 
-  if (!orgInserts.length && !contactInserts.length && !activityInserts.length) {
+  if (
+    !orgInserts.length &&
+    !contactInserts.length &&
+    !activityInserts.length &&
+    !followUpInserts.length
+  ) {
     console.log(
       `Nothing to write — every row is already present. ` +
         `Created 0; ${orgs.length} organisation(s) and ${people.length} contact(s) already there.`,
@@ -604,12 +644,14 @@ async function applyPlan(orgs: PlannedOrganisation[], people: PlannedContact[]) 
   if (orgInserts.length) writes.push(db.insert(organisationsTable).values(orgInserts));
   if (contactInserts.length) writes.push(db.insert(contactsTable).values(contactInserts));
   if (activityInserts.length) writes.push(db.insert(activitiesTable).values(activityInserts));
+  if (followUpInserts.length) writes.push(db.insert(followUpsTable).values(followUpInserts));
   type Write = (typeof writes)[number];
   await db.batch(writes as [Write, ...Write[]]);
 
   console.log(
     `Created ${orgInserts.length} organisation(s), ${contactInserts.length} contact(s) and ` +
-      `${activityInserts.length} activity row(s) from Last Contact; ` +
+      `${activityInserts.length} activity row(s) from Last Contact and ` +
+      `${followUpInserts.length} completed follow-up(s) from Follow Up Date; ` +
       `${orgs.length - orgInserts.length} organisation(s) and ` +
       `${people.length - contactInserts.length} contact(s) were already present.`,
   );

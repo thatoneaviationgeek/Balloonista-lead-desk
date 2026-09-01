@@ -163,9 +163,20 @@ relationship type (23 direct client, 18 venue partner, 14 referral partner, 2
 agency partner) and `Contact Status` her own contact state (45 not contacted, 7
 emailed, 5 with a named person) — both now columns rather than unmapped, and
 both matching the counts in her brief. `Last Contact` came across as one
-activity per organisation that has one, nine in all. `Follow Up Date` did not:
-only two rows carry one, both dated July, and a July date on the Due screen now
-would read as overdue when it is a record of something already dealt with.
+activity per organisation that has one, nine in all, each carrying her
+`Next Action` text in its summary — including The Dorchester's, which is the
+most commercially useful sentence in the file. `Follow Up Date` comes across as
+a follow-up already marked **done**: only two rows carry one, both dated July,
+and treating them as open would put them on the Due screen now reading as
+overdue, while dropping them would lose the history. Completed keeps both.
+`completedAt` is left null because the sheet records that a follow-up was set,
+not when it was actioned, and a guessed timestamp would be worse than an honest
+gap.
+
+**`Lead Score` is the only column dropped outright.** It is filled on 4 of 57
+rows, every one of them the value 6, and it says what `tier` already says. If it
+turns out to mean something `tier` does not, it can be added later — the source
+file still has it.
 
 Every row carries an `import_batch`. To undo an import:
 

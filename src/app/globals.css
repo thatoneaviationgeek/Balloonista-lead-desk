@@ -367,8 +367,16 @@ footer p { max-width:72ch; }
 .modal-actions { margin:18px 0 0; display:flex; gap:9px; flex-wrap:wrap; }
 
 /* ------------------------------------------------------ organisations --- */
-/* Tier reuses the fit palette rather than introducing three more colours:
-   same tokens, so the same contrast already checked in both themes. */
+/* Tier reuses the fit palette rather than introducing three more colours: same
+   tokens, so the same contrast already checked in both themes.
+
+   WATCH THIS. Tier 1 and High fit are the same green, Tier 2 and Medium the
+   same amber, Tier 3 and Low the same grey. That is fine only because the two
+   never appear on the same card — fit belongs to a lead, tier to an
+   organisation. The moment an organisation's tier is shown on a lead card, or a
+   lead's fit on an organisation, one colour will mean two different things on
+   one screen and tier needs its own tokens. Linking a lead to an organisation
+   is exactly the change that would do it. */
 .t-tier-1 { background:var(--high-bg); color:var(--high-ink); }
 .t-tier-2 { background:var(--med-bg); color:var(--med-ink); }
 .t-tier-3 { background:var(--low-bg); color:var(--low-ink); }
