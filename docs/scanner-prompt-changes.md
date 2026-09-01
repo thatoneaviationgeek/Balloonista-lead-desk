@@ -24,7 +24,7 @@ Sheet or produce a JSON file for hand-copying.
 > ```
 > POST https://<panel-host>/api/leads/ingest
 > Content-Type: application/json
-> x-ingest-key: <INGEST_KEY>
+> x-ingest-key: <INGEST_WRITE_KEY>
 > ```
 >
 > Body:
@@ -71,7 +71,9 @@ Sheet or produce a JSON file for hand-copying.
 > `{"ok":true,"runId":"…","found":12,"created":3,"duplicate":9}`. If you get
 > `401`, the key is wrong. If you get a sign-in page rather than JSON, you are
 > pointed at a protected preview rather than the live panel — stop and report
-> it rather than retrying.
+> it rather than retrying. Do not retry with the other key: the write key and
+> the read key are not interchangeable, and a 401 means the wrong one, not a
+> transient failure.
 
 ---
 
@@ -86,7 +88,7 @@ Paste this near the top of the prompt, before the scanning instructions.
 >
 > ```
 > GET https://<panel-host>/api/feedback/digest?agent=Events&region=UK
-> x-ingest-key: <INGEST_KEY>
+> x-ingest-key: <INGEST_READ_KEY>
 > ```
 >
 > The response has a `promptText` field containing a plain-text summary. Read
@@ -113,27 +115,54 @@ Paste this near the top of the prompt, before the scanning instructions.
 
 ## Secrets, and where they will live
 
-`INGEST_KEY` is the only secret either block needs. It is already set on the
-panel in both the Preview and Production environments.
+Two keys, split by privilege — done 1 September 2026, before either block was
+copied anywhere:
 
-**It will sit in plain text inside a scheduled-task prompt.** That is worth
-being clear-eyed about rather than discovering later:
+| Key | Used by | Grants |
+| --- | --- | --- |
+| `INGEST_WRITE_KEY` | Block A | Post findings to `/api/leads/ingest` |
+| `INGEST_READ_KEY` | Block B | Read `/api/feedback/digest` |
 
-- Anyone who can open the scheduled task can read the key.
-- It is a bearer credential: holding it is sufficient to use it.
-- Since the digest endpoint exists, that one key both **writes** leads and
-  **reads** feedback, including Aurelija's free-text notes on leads.
+A scanner needs both. They are separate because writing leads and reading
+Aurelija's notes are different privileges, and one key doing both meant every
+scheduled task carried more access than any of it needed.
 
-**Recommendation: split it into two keys before the scanners go live** — a write
-key for `/api/leads/ingest` and a read key for `/api/feedback/digest`. Four
-scheduled tasks each holding a credential that can also read her notes is more
-access than any of them needs, and separating them costs one environment
-variable and one line in each route. The panel currently checks a single
-`INGEST_KEY` in both places; nothing else depends on that.
+**Both will sit in plain text inside a scheduled-task prompt.** Be clear-eyed
+about that rather than discovering it later: anyone who can open the task can
+read them, and they are bearer credentials — holding one is sufficient to use
+it. That is the reason for the split, and the reason to pick a rotation moment
+now (say, whenever someone leaves) rather than treating them as permanent
+because nothing forces the question.
 
-Also worth doing regardless: pick a rotation moment now (say, whenever someone
-leaves), rather than treating the key as permanent because nothing forces the
-question.
+**Set them before the scanners go live.** Generate each with:
+
+```
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+`INGEST_KEY` is the old single key and is still accepted as a fallback, so
+nothing breaks in the meantime. **Remove it from the environment once both
+replacements are set** — while it exists it grants write and read at once, which
+is precisely what the split was meant to stop. The routes log a warning whenever
+they fall back to it.
+
+### A key per scanner — not yet, and here is the trigger
+
+Worth considering and worth declining for now. The gain is revocation
+granularity: one scanner's key could be pulled without disturbing the other
+three. But all four tasks are owned by the two people who already hold
+super-admin on the domain, and the realistic response to a suspected leak is
+rotating everything anyway — so it would multiply the rotation surface by four
+in exchange for a distinction nobody is currently placed to act on.
+
+The version actually worth building, if it is ever built, is not four keys but
+four keys **each bound to its own agent**, so a compromised Film key cannot post
+as Events. That is a genuine integrity gain rather than a bookkeeping one, and it
+needs a key-to-agent map in the panel.
+
+Revisit when any of these becomes true: a scanner is run by someone outside the
+two of you; the number of scanners grows past a handful; or you want per-scanner
+attribution or rate limiting on ingest.
 
 ---
 

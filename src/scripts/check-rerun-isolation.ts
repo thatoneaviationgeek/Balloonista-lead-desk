@@ -37,7 +37,7 @@ import {
 } from "../db/schema";
 
 const target = (process.argv[2] ?? "http://localhost:3000").replace(/\/+$/, "");
-const key = process.env.INGEST_KEY;
+const key = process.env.INGEST_WRITE_KEY ?? process.env.INGEST_KEY;
 const TAG = `test-rerun-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const TODAY = todayInLondon();
 
@@ -98,7 +98,7 @@ async function post(body: unknown) {
 
 async function main() {
   if (!key) {
-    console.error("INGEST_KEY is not set.");
+    console.error("INGEST_WRITE_KEY is not set.");
     process.exit(1);
   }
   console.log(`target : ${target}`);

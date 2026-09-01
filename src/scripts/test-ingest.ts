@@ -14,8 +14,8 @@
  * when an assertion fails, the delete refuses to touch anything untagged, and
  * the untagged count is compared before and after.
  *
- * Needs DATABASE_URL and INGEST_KEY from .env.local, and the target app must be
- * running with the same INGEST_KEY.
+ * Needs DATABASE_URL and INGEST_WRITE_KEY from .env.local, and the target app
+ * must be running with the same write key.
  */
 import { config as loadEnv } from "dotenv";
 
@@ -27,7 +27,7 @@ import { db } from "../db";
 import { agentRuns, leads } from "../db/schema";
 
 const target = (process.argv[2] ?? "http://localhost:3000").replace(/\/+$/, "");
-const key = process.env.INGEST_KEY;
+const key = process.env.INGEST_WRITE_KEY ?? process.env.INGEST_KEY;
 
 /* Unique per run, and lower case so dedupeKeyFor() passes it through unchanged. */
 const TAG = `test-ingest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -138,7 +138,7 @@ async function cleanup() {
 
 async function main() {
   if (!key) {
-    console.error("INGEST_KEY is not set. Copy .env.example to .env.local and fill it in.");
+    console.error("INGEST_WRITE_KEY is not set. Copy .env.example to .env.local and fill it in.");
     process.exit(1);
   }
 

@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { buildDigest } from "@/lib/digest";
 import { isIsoDate } from "@/lib/dates";
+import { checkScannerKey } from "@/lib/ingest-auth";
 
 /* What the scanners read at the start of a run, so her verdicts actually
    change what the next run looks for.
 
-     curl -H "x-ingest-key: …" \
+     curl -H "x-ingest-key: $INGEST_READ_KEY" \
        "https://…/api/feedback/digest?agent=Film&region=UK&since=2026-08-01"
 
-   Authenticated with the same INGEST_KEY the scanners post with: same
-   principals, same trust boundary. It is listed in PUBLIC_PATHS so the proxy
+   Authenticated with INGEST_READ_KEY — deliberately not the key the scanners
+   post with. Reading her notes and writing leads are different privileges, and
+   one key for both meant four scheduled-task prompts each carried more access
+   than any of them needed. It is listed in PUBLIC_PATHS so the proxy
    lets it through, which means the key check below is the only guard — do not
    remove it.
 
@@ -18,13 +21,8 @@ import { isIsoDate } from "@/lib/dates";
    select. */
 
 export async function GET(request: Request) {
-  const key = process.env.INGEST_KEY;
-  if (!key) {
-    return NextResponse.json({ error: "Digest is not configured" }, { status: 503 });
-  }
-  if (request.headers.get("x-ingest-key") !== key) {
-    return NextResponse.json({ error: "Bad ingest key" }, { status: 401 });
-  }
+  const refused = checkScannerKey(request, "read");
+  if (refused) return refused;
 
   const params = new URL(request.url).searchParams;
 

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
+import { checkScannerKey } from "@/lib/ingest-auth";
 import { db } from "@/db";
 import { agentRuns, leads } from "@/db/schema";
 import { dedupeKeyFor } from "@/lib/leads";
 
 /* The scanners POST here instead of writing a Google Sheet and a hand-built
-   JSON file. Authenticate with the shared key in INGEST_KEY:
+   JSON file. Authenticate with INGEST_WRITE_KEY:
      curl -X POST https://…/api/leads/ingest \
-       -H "x-ingest-key: …" -H "content-type: application/json" \
+       -H "x-ingest-key: $INGEST_WRITE_KEY" -H "content-type: application/json" \
        -d '{"region":"UK","agent":"Film","leads":[…]}'
 
    Decisions are never overwritten — once Aurelija has approved or rejected a
@@ -32,13 +33,8 @@ type Incoming = {
 const FITS = new Set(["High", "Medium", "Low"]);
 
 export async function POST(request: Request) {
-  const key = process.env.INGEST_KEY;
-  if (!key) {
-    return NextResponse.json({ error: "Ingest is not configured" }, { status: 503 });
-  }
-  if (request.headers.get("x-ingest-key") !== key) {
-    return NextResponse.json({ error: "Bad ingest key" }, { status: 401 });
-  }
+  const refused = checkScannerKey(request, "write");
+  if (refused) return refused;
 
   const body = (await request.json().catch(() => null)) as {
     region?: string;
