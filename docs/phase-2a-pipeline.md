@@ -156,9 +156,35 @@ now than to retrofit. Decided 30 August 2026.
   person should review. Automatically scrubbing that text would destroy genuine
   business detail; pretending the problem does not exist would be worse.
 
+## The import — done 1 September 2026
+
+Her 57 organisations and 44 contacts are in. `Opportunity` turned out to be the
+relationship type (23 direct client, 18 venue partner, 14 referral partner, 2
+agency partner) and `Contact Status` her own contact state (45 not contacted, 7
+emailed, 5 with a named person) — both now columns rather than unmapped, and
+both matching the counts in her brief. `Last Contact` came across as one
+activity per organisation that has one, nine in all. `Follow Up Date` did not:
+only two rows carry one, both dated July, and a July date on the Due screen now
+would read as overdue when it is a record of something already dealt with.
+
+Every row carries an `import_batch`. To undo an import:
+
+```
+npx tsx src/scripts/import-organisations.ts --undo <batch-id>
+```
+
+or `DELETE FROM organisations WHERE import_batch = '<batch-id>';` — deleting the
+organisations cascades to their contacts and to anything hanging off them, which
+is what makes it one statement. Verified on a synthetic batch before the real
+one was run.
+
+**No lead is linked to an organisation.** Matching "Chain of Hope Gala Ball" to
+an account is a judgement call, and `leads.organisationId` is still null on all
+64 — deliberately, until the two lists have been seen side by side.
+
 ## Not in this slice
 
-The import of her 57 organisations (next), an organisations browse and edit
+An organisations edit screen, an organisations browse and edit
 screen, the digest email, and the change to the scanners' own prompts — that
 last one is a separate job on the scheduled tasks, and the panel half is
 useless without it, so it should follow immediately.

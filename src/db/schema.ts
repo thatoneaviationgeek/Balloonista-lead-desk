@@ -65,6 +65,14 @@ export const activityKindEnum = pgEnum("activity_kind", [
   "note",
 ]);
 export const followUpStatusEnum = pgEnum("follow_up_status", ["open", "done", "cancelled"]);
+/* Her own column, carried across from the spreadsheet rather than derived. It
+   overlaps with what `activities` will eventually say, but it is the field she
+   maintains and filters on, so it stays hers until she says otherwise. */
+export const orgContactStatusEnum = pgEnum("org_contact_status", [
+  "not_contacted",
+  "initial_email_sent",
+  "have_a_contact",
+]);
 export const feedbackVerdictEnum = pgEnum("feedback_verdict", ["useful", "not_useful"]);
 /* Fixed on purpose. Free text alone drifts to "no" and "not right", which
    cannot be aggregated into anything a scanner prompt can use. */
@@ -347,9 +355,16 @@ export const organisations = pgTable(
     website: text("website"),
     location: text("location"),
     referralPotential: referralPotentialEnum("referral_potential").notNull().default("unknown"),
+    contactStatus: orgContactStatusEnum("contact_status").notNull().default("not_contacted"),
     estimatedValuePence: integer("estimated_value_pence"),
     /* Some of these run to several paragraphs of genuine research. Keep whole. */
     notes: text("notes"),
+
+    /* Which import created this row, so a bad one can be undone. Deleting by
+       batch cascades to contacts and to any activity or follow-up hanging off
+       them, which is what makes the reversal a single statement. Null for rows
+       created by hand in the panel. */
+    importBatch: text("import_batch"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -357,6 +372,7 @@ export const organisations = pgTable(
   (t) => [
     uniqueIndex("organisations_region_dedupe_idx").on(t.region, t.dedupeKey),
     index("organisations_name_idx").on(t.name),
+    index("organisations_import_batch_idx").on(t.importBatch),
     check("organisations_tier_range", sql`${t.tier} IS NULL OR ${t.tier} BETWEEN 1 AND 3`),
   ],
 );
@@ -387,6 +403,11 @@ export const contacts = pgTable(
        It must survive as a stated gap, not be scrubbed to a blank. */
     gap: text("gap"),
     notes: text("notes"),
+
+    /* Same batch stamp as the organisation, so a batch's contacts can be
+       counted without a join. Deleting the organisations is what actually
+       removes them. */
+    importBatch: text("import_batch"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

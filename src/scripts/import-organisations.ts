@@ -3,12 +3,14 @@
  *
  *   npx tsx src/scripts/import-organisations.ts <path-to-csv> [--report <file>]
  *   npx tsx src/scripts/import-organisations.ts <path-to-csv> --apply
+ *   npx tsx src/scripts/import-organisations.ts --undo <batch-id>
  *
- * Dry run by default: it writes a report and touches no rows. The mapping is
- * final as of 1 September 2026 — the date question below is settled — but
- * `--apply` still refuses, because writing 57 organisations and 44 contacts
- * into a live database is a decision to be taken deliberately and out loud,
- * not a flag someone discovers.
+ * Dry run by default: it writes a report and touches no rows. `--apply` writes,
+ * stamping every organisation and contact with a batch id it prints, so a bad
+ * import can be undone by that id in one command. Running the same file twice
+ * creates nothing the second time — rows are matched on their dedupe key and
+ * left alone, because this is a one-off import rather than a sync and
+ * refreshing would quietly overwrite anything since edited in the panel.
  *
  * The file holds real contact details for people at other companies. Keep it out
  * of the repository: `data/` is in .gitignore, and the report this writes
@@ -27,8 +29,20 @@
  *    it goes to `contacts.gap` so the email column stays trustworthy.
  *  - Notes run to several paragraphs of real research and are preserved whole.
  */
+import { config as loadEnv } from "dotenv";
+
+/* Next.js reads .env.local automatically; standalone scripts do not. */
+loadEnv({ path: [".env.local", ".env"], quiet: true });
 import { readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { eq, inArray } from "drizzle-orm";
 import { organisationDedupeKey, contactDedupeKey, looksLikeEmail } from "../lib/pipeline";
+import { db } from "../db";
+import {
+  activities as activitiesTable,
+  contacts as contactsTable,
+  organisations as organisationsTable,
+} from "../db/schema";
 
 /* ------------------------------------------------------------ CSV parsing */
 
@@ -98,6 +112,26 @@ function parseTier(value: string | null): { tier: number | null; issue: string |
   if (n < 1 || n > 3) return { tier: null, issue: `tier ${n} is outside 1–3` };
   return { tier: n, issue: null };
 }
+
+/* `Opportunity` in the sheet is the relationship type: its four values map
+   one-to-one onto the enum the schema already had, 23/18/14/2 across all 57
+   rows. It was listed as unmappable in the first dry-run report; that was
+   wrong, and the column had simply been looked for under the wrong name. */
+const RELATIONSHIP: Record<string, "direct_client" | "venue_partner" | "referral_partner" | "agency_partner"> = {
+  "direct client": "direct_client",
+  "venue partner": "venue_partner",
+  "referral partner": "referral_partner",
+  "agency partner": "agency_partner",
+};
+
+/* Her own contact status, carried across rather than derived. 45 not contacted,
+   7 emailed, 5 with a named person — which is exactly the split the brief
+   described, and a useful check that the file is the one we think it is. */
+const CONTACT_STATUS: Record<string, "not_contacted" | "initial_email_sent" | "have_a_contact"> = {
+  "not contacted": "not_contacted",
+  "initial email sent": "initial_email_sent",
+  "have a contact": "have_a_contact",
+};
 
 const REFERRAL = new Set(["high", "medium", "low"]);
 function parseReferral(value: string | null) {
@@ -179,10 +213,18 @@ type PlannedOrganisation = {
   location: string | null;
   region: "UK" | "Dubai";
   referralPotential: "high" | "medium" | "low" | "unknown";
+  relationship: "direct_client" | "venue_partner" | "referral_partner" | "agency_partner" | null;
+  contactStatus: "not_contacted" | "initial_email_sent" | "have_a_contact";
   estimatedValuePence: number | null;
   notes: string | null;
   notesLineBreaks: number;
   notesChars: number;
+  /* Her `Last Contact` column, read day-first. Becomes one activity — history,
+     not a live follow-up: a July date on the Due screen in September would read
+     as overdue when it is simply a record of what happened. `Follow Up Date` is
+     deliberately not imported for that reason. */
+  lastContact: string | null;
+  nextAction: string | null;
 };
 
 type PlannedContact = {
@@ -196,7 +238,7 @@ type PlannedContact = {
   gap: string | null;
 };
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   const file = args.find((a) => !a.startsWith("--"));
   const apply = args.includes("--apply");
@@ -206,16 +248,10 @@ function main() {
     console.error("Usage: import-organisations.ts <path-to-csv> [--report <file>] [--apply]");
     process.exit(1);
   }
-  if (apply) {
-    console.error(
-      "--apply is not implemented, on purpose.\n\n" +
-        "The mapping is final: the date question is settled and no row still needs a\n" +
-        "decision. What is not settled is whether to write 57 organisations and 44\n" +
-        "contacts into the live database, which holds 64 real leads. That is a call to\n" +
-        "make deliberately rather than by finding a flag, so the write path gets added\n" +
-        "when it is asked for and not before.",
-    );
-    process.exit(1);
+  const undoBatch = args.includes("--undo") ? args[args.indexOf("--undo") + 1] : null;
+  if (undoBatch) {
+    await undoImport(undoBatch);
+    return;
   }
 
   const rows = parseCsv(readFileSync(file, "utf8"));
@@ -234,6 +270,7 @@ function main() {
     location: col("Location"),
     leadScore: col("Lead Score"),
     contactStatus: col("Contact Status"),
+    opportunity: col("Opportunity"),
     lastContact: col("Last Contact"),
     nextAction: col("Next Action"),
     followUp: col("Follow Up Date"),
@@ -303,10 +340,15 @@ function main() {
       location,
       region,
       referralPotential: parseReferral(clean(raw[C.referral])),
+      relationship: RELATIONSHIP[(clean(raw[C.opportunity]) ?? "").toLowerCase()] ?? null,
+      contactStatus:
+        CONTACT_STATUS[(clean(raw[C.contactStatus]) ?? "").toLowerCase()] ?? "not_contacted",
       estimatedValuePence: money.pence,
       notes,
       notesLineBreaks: notes ? (notes.match(/\n/g) ?? []).length : 0,
       notesChars: notes ? notes.length : 0,
+      lastContact: readDate(clean(raw[C.lastContact])).iso,
+      nextAction: clean(raw[C.nextAction]),
     });
 
     /* --- the person, if there is one --- */
@@ -410,14 +452,19 @@ function main() {
   say();
   say("## Columns not mapped in this slice");
   say();
-  say("Present in the sheet, deliberately not imported yet:");
+  say("`Opportunity` and `Contact Status` are now mapped — to `relationship` and `contact_status`");
+  say("respectively. `Opportunity` was listed here as unmappable in the first dry run; that was");
+  say("wrong. Its four values are exactly the relationship enum, 23/18/14/2 across all 57 rows.");
+  say("`Last Contact` is mapped too, as one activity per organisation that has a date.");
   say();
-  say("- `Opportunity`, `Lead Score`, `Contact Status`, `Next Action` — no column exists for them.");
-  say("  `Contact Status` and `Lead Score` overlap with things the panel already models differently;");
-  say("  mapping them without deciding which wins would create two sources of truth.");
-  say("- `Last Contact` and `Follow Up Date` — these parse cleanly now and belong in `activities`");
-  say("  and `follow_ups`. They come across when the import is run for real, but as history: a");
-  say("  follow-up dated July would otherwise land on the Due screen in September as overdue.");
+  say("Still not imported, deliberately:");
+  say();
+  say("- `Lead Score` — filled on 4 rows out of 57 and overlapping with `tier`; mapping it would");
+  say("  create a second answer to the same question.");
+  say("- `Follow Up Date` — parses cleanly but is deliberately not imported. Only 2 rows carry one,");
+  say("  both dated July, and a July date would appear on the Due screen now reading as overdue");
+  say("  when it is a record of something already dealt with. Set follow-ups from the panel.");
+  say("- `Next Action` — carried, but as part of the activity summary rather than its own column.");
   say("- `Tier Key` — a legend beside the data, not a record.");
 
   const report = lines.join("\n") + "\n";
@@ -431,6 +478,170 @@ function main() {
   console.log(
     `\nSummary: ${organisations.length} organisations, ${contacts.length} contacts, ${flags.length} rows flagged.`,
   );
+
+  if (apply) await applyPlan(organisations, contacts);
 }
 
-main();
+/* ------------------------------------------------------------------ writing */
+
+/**
+ * Write the plan, stamped with a batch id.
+ *
+ * Existing rows are matched on their dedupe key and left alone rather than
+ * updated: this is a one-off import, not a sync, and refreshing a row would
+ * quietly overwrite anything since edited in the panel. So running the same
+ * file twice creates nothing the second time, which is the property worth
+ * having and the one that proves the keys are stable.
+ *
+ * Ids are minted here rather than read back, because neon-http has no
+ * interactive transactions — see AGENTS.md. Both inserts go into one
+ * db.batch(), so either the whole import lands or none of it does.
+ */
+async function applyPlan(orgs: PlannedOrganisation[], people: PlannedContact[]) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const batch = `csv-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const existingOrgs = await db
+    .select({ id: organisationsTable.id, dedupeKey: organisationsTable.dedupeKey })
+    .from(organisationsTable);
+  const orgIdByKey = new Map(existingOrgs.map((o) => [o.dedupeKey, o.id]));
+
+  const orgInserts: (typeof organisationsTable.$inferInsert)[] = [];
+  for (const o of orgs) {
+    if (orgIdByKey.has(o.dedupeKey)) continue;
+    const id = randomUUID();
+    orgIdByKey.set(o.dedupeKey, id);
+    orgInserts.push({
+      id,
+      region: o.region,
+      dedupeKey: o.dedupeKey,
+      name: o.name,
+      sector: o.sector,
+      tier: o.tier,
+      relationship: o.relationship,
+      website: o.website,
+      location: o.location,
+      referralPotential: o.referralPotential,
+      contactStatus: o.contactStatus,
+      estimatedValuePence: o.estimatedValuePence,
+      notes: o.notes,
+      importBatch: batch,
+    });
+  }
+
+  const orgIds = [...orgIdByKey.values()];
+  const existingContacts = orgIds.length
+    ? await db
+        .select({
+          organisationId: contactsTable.organisationId,
+          dedupeKey: contactsTable.dedupeKey,
+        })
+        .from(contactsTable)
+        .where(inArray(contactsTable.organisationId, orgIds))
+    : [];
+  const seen = new Set(existingContacts.map((c) => `${c.organisationId}::${c.dedupeKey}`));
+
+  const contactInserts: (typeof contactsTable.$inferInsert)[] = [];
+  for (const c of people) {
+    const organisationId = orgIdByKey.get(c.organisationKey);
+    if (!organisationId) continue;
+    const key = `${organisationId}::${c.dedupeKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    contactInserts.push({
+      id: randomUUID(),
+      organisationId,
+      dedupeKey: c.dedupeKey,
+      name: c.name,
+      jobTitle: c.jobTitle,
+      email: c.email,
+      phone: c.phone,
+      gap: c.gap,
+      importBatch: batch,
+    });
+  }
+
+  /* `Last Contact` becomes one activity per organisation that has a date —
+     history, not a live follow-up. `Follow Up Date` is deliberately left out:
+     a July date would land on the Due screen in September reading as overdue,
+     when it is a record of something already done.
+
+     Only written for organisations this run created, so a rerun adds nothing.
+     No summary is invented: it says where the row came from, and repeats her
+     own Next Action text when she wrote one. `actorId` stays null because the
+     spreadsheet does not say who made the contact. */
+  const contactIdByOrg = new Map(contactInserts.map((c) => [c.organisationId, c.id!]));
+  const newOrgIds = new Set(orgInserts.map((o) => o.id!));
+  const activityInserts: (typeof activitiesTable.$inferInsert)[] = [];
+  for (const o of orgs) {
+    if (!o.lastContact) continue;
+    const organisationId = orgIdByKey.get(o.dedupeKey);
+    if (!organisationId || !newOrgIds.has(organisationId)) continue;
+    activityInserts.push({
+      id: randomUUID(),
+      kind: o.contactStatus === "initial_email_sent" ? "email_sent" : "note",
+      occurredAt: o.lastContact,
+      summary:
+        "Contact recorded in the pipeline spreadsheet" +
+        (o.nextAction ? ` — next action: ${o.nextAction}` : ""),
+      actorId: null,
+      organisationId,
+      contactId: contactIdByOrg.get(organisationId) ?? null,
+    });
+  }
+
+  console.log(`\nimport batch: ${batch}`);
+
+  if (!orgInserts.length && !contactInserts.length && !activityInserts.length) {
+    console.log(
+      `Nothing to write — every row is already present. ` +
+        `Created 0; ${orgs.length} organisation(s) and ${people.length} contact(s) already there.`,
+    );
+    return;
+  }
+
+  const writes = [];
+  if (orgInserts.length) writes.push(db.insert(organisationsTable).values(orgInserts));
+  if (contactInserts.length) writes.push(db.insert(contactsTable).values(contactInserts));
+  if (activityInserts.length) writes.push(db.insert(activitiesTable).values(activityInserts));
+  type Write = (typeof writes)[number];
+  await db.batch(writes as [Write, ...Write[]]);
+
+  console.log(
+    `Created ${orgInserts.length} organisation(s), ${contactInserts.length} contact(s) and ` +
+      `${activityInserts.length} activity row(s) from Last Contact; ` +
+      `${orgs.length - orgInserts.length} organisation(s) and ` +
+      `${people.length - contactInserts.length} contact(s) were already present.`,
+  );
+  console.log(
+    `\nTo undo this import, one command:\n` +
+      `  npx tsx src/scripts/import-organisations.ts --undo ${batch}\n\n` +
+      `Equivalently, in SQL:\n` +
+      `  DELETE FROM organisations WHERE import_batch = '${batch}';\n\n` +
+      `Deleting the organisations cascades to their contacts and to any activity or\n` +
+      `follow-up hanging off them, which is what makes the reversal a single statement.`,
+  );
+}
+
+/** Remove everything one import created. The cascades do the rest. */
+async function undoImport(batch: string) {
+  const orgs = await db
+    .select({ id: organisationsTable.id })
+    .from(organisationsTable)
+    .where(eq(organisationsTable.importBatch, batch));
+
+  if (!orgs.length) {
+    console.log(`No organisations carry import batch "${batch}". Nothing to undo.`);
+    return;
+  }
+  await db.delete(organisationsTable).where(eq(organisationsTable.importBatch, batch));
+  console.log(
+    `Removed ${orgs.length} organisation(s) from batch ${batch}, and everything that ` +
+      `cascaded from them.`,
+  );
+}
+
+main().catch((error) => {
+  console.error("\n" + (error instanceof Error ? (error.stack ?? error.message) : String(error)));
+  process.exit(1);
+});
