@@ -4,10 +4,11 @@
  *   npx tsx src/scripts/import-organisations.ts <path-to-csv> [--report <file>]
  *   npx tsx src/scripts/import-organisations.ts <path-to-csv> --apply
  *
- * Dry run by default: it writes a report and touches no rows. `--apply` is
- * deliberately opt-in and has not been exercised — the mapping is not final
- * until the flagged rows below have been resolved by a person, and finalising
- * it before then would mean guessing at exactly the things worth asking about.
+ * Dry run by default: it writes a report and touches no rows. The mapping is
+ * final as of 1 September 2026 — the date question below is settled — but
+ * `--apply` still refuses, because writing 57 organisations and 44 contacts
+ * into a live database is a decision to be taken deliberately and out loud,
+ * not a flag someone discovers.
  *
  * The file holds real contact details for people at other companies. Keep it out
  * of the repository: `data/` is in .gitignore, and the report this writes
@@ -16,11 +17,10 @@
  *
  * What the brief says about this file, and what is done about it:
  *
- *  - Dates are inconsistent — 04/08/2026, 29.06.2026 and 20.07.2026 all appear.
- *    Nothing is guessed. A date is ambiguous when both of its first two numbers
- *    are 12 or under, because then day-first and month-first are both readable;
- *    those are listed for a person to resolve. 29.06 and 20.07 are unambiguous,
- *    since no month is 29 or 20.
+ *  - Dates mix separators — 04/08/2026, 29.06.2026 and 20.07.2026 all appear —
+ *    but not field order. The column is day-first; the evidence is set out in
+ *    full above `readDate` and should not be re-argued. Rows that relied on
+ *    that reading are still listed in the report so it stays visible.
  *  - `Select` is a leftover dropdown default and means empty, not a value.
  *  - Rows below the data are template leftovers, not records.
  *  - `Find her on LinkedIn` in the email column is a stated gap, not a blank —
@@ -116,28 +116,52 @@ function parseMoney(value: string | null): { pence: number | null; issue: string
 }
 
 /**
- * A date is only accepted when it cannot be read two ways. Both separators are
- * in the file, and day-first is the British convention — but "04/08/2026" is
- * readable as 4 August or 8 April, and getting it wrong produces a follow-up on
- * the wrong day, which is the very thing this system is meant to fix.
+ * This column is day-first. Settled 1 September 2026 — do not re-litigate it.
+ *
+ * The file mixes separators (04/08/2026, 29.06.2026, 20.07.2026), so the first
+ * question was whether it also mixes field order. It does not, and three
+ * independent lines of evidence say so:
+ *
+ *  1. Every *unambiguous* date in the column is day-first in both separator
+ *     styles — 29/07, 30/07, 29.06, 20.07, 29.07. If the sheet were month-first
+ *     anywhere, a first number above 12 would be impossible; they are common.
+ *  2. No first number anywhere in the column exceeds 12 under a day-first
+ *     reading, which is what you would expect of a consistent sheet and not
+ *     what you would expect of a mixed one.
+ *  3. The intervals corroborate it. The Dorchester has a last contact of
+ *     06/07 against a follow-up of 20.07: exactly two weeks on a July reading,
+ *     six on a June one — and two weeks is the interval Aurelija names herself.
+ *     Chancery Rosewood says the same, 06/07 against a 14.07 follow-up.
+ *
+ * So "04/08/2026" is 4 August and "06/07/2026" is 6 July. The parser reads
+ * day-first, and still reports which rows relied on that reading rather than on
+ * an unambiguous value, so the assumption stays visible instead of disappearing
+ * into the data. If a future file turns out to be month-first, that report is
+ * where you will notice.
  */
-function readDate(value: string | null): { iso: string | null; issue: string | null } {
-  if (!value) return { iso: null, issue: null };
+function readDate(
+  value: string | null,
+): { iso: string | null; issue: string | null; assumedDayFirst: boolean } {
+  if (!value) return { iso: null, issue: null, assumedDayFirst: false };
   const m = value.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
-  if (!m) return { iso: null, issue: `date "${value}" is not in a recognised format` };
-  const a = Number(m[1]);
-  const b = Number(m[2]);
+  if (!m) {
+    return { iso: null, issue: `date "${value}" is not in a recognised format`, assumedDayFirst: false };
+  }
+  const day = Number(m[1]);
+  const month = Number(m[2]);
   let year = Number(m[3]);
   if (year < 100) year += 2000;
-  if (a <= 12 && b <= 12) {
-    return { iso: null, issue: `date "${value}" is ambiguous — ${a}/${b} could be either order` };
+
+  /* Only interesting because both readings would parse; the answer is settled. */
+  const wouldHaveBeenAmbiguous = day <= 12 && month <= 12;
+
+  if (day < 1 || day > 31 || month < 1 || month > 12) {
+    return { iso: null, issue: `date "${value}" is not a real date`, assumedDayFirst: false };
   }
-  const day = a > 12 ? a : b;
-  const month = a > 12 ? b : a;
-  if (day > 31 || month > 12) return { iso: null, issue: `date "${value}" is not a real date` };
   return {
     iso: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
     issue: null,
+    assumedDayFirst: wouldHaveBeenAmbiguous,
   };
 }
 
@@ -184,10 +208,12 @@ function main() {
   }
   if (apply) {
     console.error(
-      "--apply is not implemented yet, on purpose.\n" +
-        "The mapping is not final until the flagged rows in the dry-run report have been\n" +
-        "resolved by a person. Finalising it first would mean guessing at exactly the\n" +
-        "things worth asking about.",
+      "--apply is not implemented, on purpose.\n\n" +
+        "The mapping is final: the date question is settled and no row still needs a\n" +
+        "decision. What is not settled is whether to write 57 organisations and 44\n" +
+        "contacts into the live database, which holds 64 real leads. That is a call to\n" +
+        "make deliberately rather than by finding a flag, so the write path gets added\n" +
+        "when it is asked for and not before.",
     );
     process.exit(1);
   }
@@ -219,6 +245,8 @@ function main() {
   const organisations: PlannedOrganisation[] = [];
   const contacts: PlannedContact[] = [];
   const flags: Flag[] = [];
+  /* Read day-first per the settled reasoning above; listed, not flagged. */
+  const dayFirst: Flag[] = [];
   const seenOrg = new Map<string, number>();
   let skippedTemplate = 0;
   let skippedBlank = 0;
@@ -308,14 +336,18 @@ function main() {
       });
     }
 
-    /* --- dates, which are not imported but must not be silently lost --- */
+    /* --- dates, read but not imported in this slice --- */
     for (const [label, idx] of [
       ["Last Contact", C.lastContact],
       ["Follow Up Date", C.followUp],
     ] as const) {
       if (idx < 0) continue;
-      const d = readDate(clean(raw[idx]));
+      const cell = clean(raw[idx]);
+      const d = readDate(cell);
       if (d.issue) flags.push({ row: rowNo, company, issue: `${label}: ${d.issue}` });
+      else if (d.assumedDayFirst && cell) {
+        dayFirst.push({ row: rowNo, company, issue: `${label}: "${cell}" read as ${d.iso}` });
+      }
     }
   }
 
@@ -358,6 +390,24 @@ function main() {
     }
   }
   say();
+  say("## Dates read day-first");
+  say();
+  if (dayFirst.length === 0) {
+    say("No date in the file needed the day-first reading to disambiguate it.");
+  } else {
+    say(
+      `${dayFirst.length} value(s) would have parsed either way and were read day-first, per the ` +
+        "settled reasoning above `readDate`. Listed so the assumption stays visible rather than " +
+        "disappearing into the data.",
+    );
+    say();
+    say("| Row | Organisation | Reading |");
+    say("| --- | --- | --- |");
+    for (const f of dayFirst) {
+      say(`| ${f.row} | ${f.company.replace(/\|/g, "\\|")} | ${f.issue.replace(/\|/g, "\\|")} |`);
+    }
+  }
+  say();
   say("## Columns not mapped in this slice");
   say();
   say("Present in the sheet, deliberately not imported yet:");
@@ -365,9 +415,9 @@ function main() {
   say("- `Opportunity`, `Lead Score`, `Contact Status`, `Next Action` — no column exists for them.");
   say("  `Contact Status` and `Lead Score` overlap with things the panel already models differently;");
   say("  mapping them without deciding which wins would create two sources of truth.");
-  say("- `Last Contact` and `Follow Up Date` — these belong in `activities` and `follow_ups`, but only");
-  say("  once the ambiguous dates above are resolved. Importing them now would put follow-ups on the");
-  say("  wrong day, which is the exact failure the panel exists to prevent.");
+  say("- `Last Contact` and `Follow Up Date` — these parse cleanly now and belong in `activities`");
+  say("  and `follow_ups`. They come across when the import is run for real, but as history: a");
+  say("  follow-up dated July would otherwise land on the Due screen in September as overdue.");
   say("- `Tier Key` — a legend beside the data, not a record.");
 
   const report = lines.join("\n") + "\n";
