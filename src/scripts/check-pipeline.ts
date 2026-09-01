@@ -336,8 +336,9 @@ async function main() {
     check("renders a pasteable block",
       digest.promptText.includes("Why leads were rejected"), digest.promptText.slice(0, 60));
 
-    /* The boundary that matters: INGEST_KEY now reads as well as writes, and
-       third-party personal data has no business in a scanner prompt. */
+    /* Boundary one: personal data must not leave at all. The read key is held
+       by scheduled tasks, and third-party contact details have no business
+       anywhere in this response. */
     const serialised = JSON.stringify(digest);
     check("no contact email anywhere in the digest",
       !serialised.includes("@example.invalid"));
@@ -345,8 +346,18 @@ async function main() {
       !serialised.includes("TEST CONTACT"));
     check("no lead contact field either",
       !serialised.includes("GAP — synthetic test row"));
-    check("her own note on the lead does survive",
-      serialised.includes("Test note for the digest"));
+
+    /* Boundary two, and a different one: untrusted text must not reach
+       promptText, because that block is pasted into the prompt of an agent
+       holding a POST credential. Lead titles are harvested off web pages. */
+    check("the lead title is absent from promptText",
+      !digest.promptText.includes(TAG), digest.promptText.slice(0, 80));
+    check("but is present in the structured examples, for a person to read",
+      JSON.stringify(digest.examples).includes(TAG));
+    check("the response declares which fields are untrusted",
+      digest.untrusted.includes("examples[].title"), JSON.stringify(digest.untrusted));
+    check("her own note does reach promptText — she is trusted",
+      digest.promptText.includes("Test note for the digest"));
   } finally {
     /* 11 --------------------------------------------------------- tidy up */
     console.log("\n11. Cleaning up");
