@@ -50,11 +50,19 @@ tokens are ported from the v1 static site and should not be redesigned casually.
   interactive transactions — so if something genuinely needs one, move that path
   onto it deliberately instead of working around the limit.
 
-**Current work:** Phase 1 (lead desk on Postgres) is done. Next is
-`docs/phase-2a-pipeline.md` — contacts, activity logging, follow-ups and lead
-feedback, written from Aurelija's own feedback. After that,
-`docs/phase-2-jobs-board.md` for jobs and calendar sync, whose Stage 0 schema
-is already done.
+**Current work:** Phase 1 (lead desk) and Phase 2A (`docs/phase-2a-pipeline.md`
+— contacts, activities, follow-ups, lead feedback) are done, and her 57
+organisations are imported. Next is `docs/phase-3-pipeline.md` — pipeline stages
+on organisations, from her follow-up feedback, which also answers the HubSpot
+question. After that `docs/phase-2-jobs-board.md` for jobs and calendar sync,
+whose Stage 0 schema is already done.
+
+**On HubSpot:** she has asked for the panel to be "like HubSpot". Take its stage
+model and nothing else — `docs/phase-3-pipeline.md` sets out what to adopt and
+what to refuse. In particular, HubSpot's sales automation is built on automated
+outbound email, which the outreach rule above forbids. That rule is not an
+oversight; reversing it would be a deliberate decision taken out loud, never a
+side effect of copying a feature.
 
 **Before committing:** `npm run typecheck && npm run lint && npm run build`.
 
