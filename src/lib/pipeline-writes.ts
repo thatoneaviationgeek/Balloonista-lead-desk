@@ -22,6 +22,7 @@ import {
   FEEDBACK_REASONS,
   FEEDBACK_VERDICTS,
   FOLLOW_UP_STATUSES,
+  ORG_STAGES,
   contactDedupeKey,
   looksLikeEmail,
   organisationDedupeKey,
@@ -29,6 +30,7 @@ import {
   type FeedbackReason,
   type FeedbackVerdict,
   type FollowUpStatus,
+  type OrgStage,
 } from "./pipeline";
 import { db } from "@/db";
 import {
@@ -38,6 +40,7 @@ import {
   leadFeedback,
   leadEvents,
   leads,
+  organisationEvents,
   organisations,
   people,
 } from "@/db/schema";
@@ -487,4 +490,113 @@ export async function recordFeedback(
     .returning({ id: leadFeedback.id });
 
   return { ok: true, data: { id: row.id } };
+}
+
+/* ------------------------------------------------- organisation stage */
+
+export type StageChangeResult = {
+  organisationId: string;
+  from: OrgStage;
+  to: OrgStage;
+  followUpId: string | null;
+  unchanged: boolean;
+};
+
+/**
+ * Move an organisation to a different stage.
+ *
+ * This is the dropdown Aurelija asked for. Three things go with it, and they
+ * are the reason this is a write path rather than a one-line update:
+ *
+ *  - **It is a decision, so it is audited.** Every move writes an
+ *    `organisation_events` row saying who moved it, when, and from where —
+ *    the same treatment lead status already gets. That question is asked when
+ *    something goes quiet, and it cannot be reconstructed afterwards.
+ *  - **Nothing automated may overwrite it.** Same rule as `leads.status` and
+ *    `leads.organisationId`: an import or a scanner refreshes facts, never a
+ *    stage somebody chose.
+ *  - **It offers the next follow-up.** Moving something to "contacted" with no
+ *    reminder to chase is how a thing goes quiet in the first place. Offered
+ *    through `next`, never imposed — no `next`, no follow-up.
+ */
+export async function changeOrganisationStage(
+  writer: Writer,
+  organisationId: string,
+  body: Record<string, unknown>,
+): Promise<WriteResult<StageChangeResult>> {
+  const stage = body.stage;
+  if (typeof stage !== "string" || !(ORG_STAGES as readonly string[]).includes(stage)) {
+    return fail(400, `stage must be one of: ${ORG_STAGES.join(", ")}`);
+  }
+
+  const org = (
+    await db
+      .select({ id: organisations.id, stage: organisations.contactStatus })
+      .from(organisations)
+      .where(eq(organisations.id, organisationId))
+      .limit(1)
+  )[0];
+  if (!org) return fail(404, "No such organisation");
+
+  const note = text(body.note);
+  const next = record(body.next);
+  const now = new Date();
+
+  if (org.stage === stage && !note && !next) {
+    return {
+      ok: true,
+      data: {
+        organisationId,
+        from: org.stage,
+        to: org.stage,
+        followUpId: null,
+        unchanged: true,
+      },
+    };
+  }
+
+  const writes: Write[] = [];
+
+  if (org.stage !== stage) {
+    writes.push(
+      db
+        .update(organisations)
+        .set({ contactStatus: stage as OrgStage, updatedAt: now })
+        .where(eq(organisations.id, organisationId)),
+    );
+  }
+
+  writes.push(
+    db.insert(organisationEvents).values({
+      organisationId,
+      actorId: writer.personId || null,
+      actorEmail: writer.email,
+      action: "stage",
+      fromStage: org.stage,
+      toStage: stage as OrgStage,
+      note,
+    }),
+  );
+
+  let followUpId: string | null = null;
+  if (next) {
+    if (!isIsoDate(next.dueAt)) return fail(400, "next.dueAt must be a calendar date as YYYY-MM-DD");
+    followUpId = randomUUID();
+    writes.push(
+      db.insert(followUps).values({
+        id: followUpId,
+        dueAt: next.dueAt,
+        note: text(next.note),
+        assigneeId: writer.personId || null,
+        organisationId,
+      }),
+    );
+  }
+
+  await db.batch(writes as [Write, ...Write[]]);
+
+  return {
+    ok: true,
+    data: { organisationId, from: org.stage, to: stage as OrgStage, followUpId, unchanged: false },
+  };
 }

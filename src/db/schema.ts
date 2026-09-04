@@ -73,6 +73,10 @@ export const orgContactStatusEnum = pgEnum("org_contact_status", [
   "initial_email_sent",
   "have_a_contact",
 ]);
+/* What an organisation_events row records. Only `stage` is written today; the
+   discriminator exists for the same reason job_events has one — an audit table
+   that can only describe one kind of change ages badly. */
+export const organisationEventActionEnum = pgEnum("organisation_event_action", ["stage", "note"]);
 export const feedbackVerdictEnum = pgEnum("feedback_verdict", ["useful", "not_useful"]);
 /* Fixed on purpose. Free text alone drifts to "no" and "not right", which
    cannot be aggregated into anything a scanner prompt can use. */
@@ -375,6 +379,36 @@ export const organisations = pgTable(
     index("organisations_import_batch_idx").on(t.importBatch),
     check("organisations_tier_range", sql`${t.tier} IS NULL OR ${t.tier} BETWEEN 1 AND 3`),
   ],
+);
+
+/* Audit trail for organisations, mirroring `lead_events`.
+
+   Which stage something was in last month, and who moved it, is the question
+   asked when a deal goes quiet — and like the lead and job trails, it cannot be
+   reconstructed afterwards, so the rows have to start accumulating from the
+   first change rather than from whenever someone thinks to add it.
+
+   `fromStage`/`toStage` are typed as the stage enum rather than text on
+   purpose. The stage vocabulary is still being settled with Aurelija, so these
+   will move when it widens — Postgres adds and renames enum values in place,
+   and a typed column that follows the schema is worth more than a text column
+   that quietly accepts a stage which no longer exists. */
+export const organisationEvents = pgTable(
+  "organisation_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => people.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email"),
+    action: organisationEventActionEnum("action").notNull(),
+    fromStage: orgContactStatusEnum("from_stage"),
+    toStage: orgContactStatusEnum("to_stage"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("organisation_events_org_idx").on(t.organisationId)],
 );
 
 /* -------------------------------------------------------------- contacts */

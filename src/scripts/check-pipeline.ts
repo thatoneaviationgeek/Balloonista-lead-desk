@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 import { eq, like, sql } from "drizzle-orm";
 import { addDays, todayInLondon } from "../lib/dates";
 import {
+  changeOrganisationStage,
   createFollowUp,
   logActivity,
   recordFeedback,
@@ -43,6 +44,7 @@ import {
   leadFeedback,
   leadEvents,
   leads,
+  organisationEvents,
   organisations,
   people,
 } from "../db/schema";
@@ -70,6 +72,7 @@ const TABLES = {
   follow_ups: followUps,
   lead_feedback: leadFeedback,
   lead_events: leadEvents,
+  organisation_events: organisationEvents,
 } as const;
 
 async function counts() {
@@ -358,9 +361,63 @@ async function main() {
       digest.untrusted.includes("examples[].title"), JSON.stringify(digest.untrusted));
     check("her own note does reach promptText — she is trusted",
       digest.promptText.includes("Test note for the digest"));
+
+    /* 11 -------------------------------------------- moving a pipeline stage */
+    console.log("\n11. Organisation stage changes");
+    const [orgBefore] = await db
+      .select().from(organisations).where(eq(organisations.id, organisationId!)).limit(1);
+    check("starts at not_contacted", orgBefore.contactStatus === "not_contacted",
+      orgBefore.contactStatus);
+
+    const moved = await changeOrganisationStage(writer, organisationId!, {
+      stage: "initial_email_sent",
+    });
+    check("accepted", moved.ok, moved.ok ? "" : moved.error);
+    if (!moved.ok) throw new Error("cannot continue");
+    check("reports the move", moved.data.from === "not_contacted" &&
+      moved.data.to === "initial_email_sent" && !moved.data.unchanged);
+
+    const [orgAfter] = await db
+      .select().from(organisations).where(eq(organisations.id, organisationId!)).limit(1);
+    check("the stage actually moved", orgAfter.contactStatus === "initial_email_sent",
+      orgAfter.contactStatus);
+
+    const evs = await db.select().from(organisationEvents)
+      .where(eq(organisationEvents.organisationId, organisationId!));
+    check("one audit row", evs.length === 1, `found ${evs.length}`);
+    check("it records from, to and who",
+      evs[0]?.fromStage === "not_contacted" && evs[0]?.toStage === "initial_email_sent" &&
+        evs[0]?.actorId === actor.id && evs[0]?.action === "stage");
+
+    /* Moving with a `next` puts the stage change and the reminder in one batch. */
+    const fuBefore = (await db.select().from(followUps)
+      .where(eq(followUps.organisationId, organisationId!))).length;
+    const withNext = await changeOrganisationStage(writer, organisationId!, {
+      stage: "have_a_contact",
+      next: { dueAt: addDays(TODAY, 14) },
+    });
+    check("move with a follow-up accepted", withNext.ok, withNext.ok ? "" : withNext.error);
+    check("a follow-up came with it", withNext.ok && !!withNext.data.followUpId);
+    const fuAfter = await db.select().from(followUps)
+      .where(eq(followUps.organisationId, organisationId!));
+    check("exactly one more follow-up", fuAfter.length === fuBefore + 1,
+      `${fuBefore} -> ${fuAfter.length}`);
+    check("two audit rows now", (await db.select().from(organisationEvents)
+      .where(eq(organisationEvents.organisationId, organisationId!))).length === 2);
+
+    /* Re-picking the stage it is already in is a no-op, not a spurious row. */
+    const same = await changeOrganisationStage(writer, organisationId!, { stage: "have_a_contact" });
+    check("same stage reports unchanged", same.ok && same.data.unchanged === true);
+    check("and wrote no audit row", (await db.select().from(organisationEvents)
+      .where(eq(organisationEvents.organisationId, organisationId!))).length === 2);
+
+    check("an unknown stage is refused",
+      refused(await changeOrganisationStage(writer, organisationId!, { stage: "won" }), 400));
+    check("an unknown organisation is refused",
+      refused(await changeOrganisationStage(writer, randomUUID(), { stage: "not_contacted" }), 404));
   } finally {
     /* 11 --------------------------------------------------------- tidy up */
-    console.log("\n11. Cleaning up");
+    console.log("\n12. Cleaning up");
     const taggedLeads = await db.select({ id: leads.id, k: leads.dedupeKey }).from(leads)
       .where(like(leads.dedupeKey, `${TAG}%`));
     const taggedOrgs = await db.select({ id: organisations.id, k: organisations.dedupeKey })

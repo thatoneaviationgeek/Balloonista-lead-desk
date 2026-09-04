@@ -123,8 +123,36 @@ export const ORG_RELATIONSHIP_LABEL: Record<string, string> = {
   agency_partner: "Agency partner",
 };
 
-export const ORG_CONTACT_STATUS_LABEL: Record<string, string> = {
+/**
+ * The pipeline stages, in pipeline order.
+ *
+ * This array is the order — the board lays its columns out left to right from
+ * it, so the sequence here is a statement about the process and not just a
+ * list. Today it holds the three values that came across from Aurelija's own
+ * spreadsheet, which is why the names read like her sheet rather than like a
+ * sales pipeline.
+ *
+ * Widening this is where her answer lands (see `docs/phase-3-pipeline.md`):
+ * roughly not contacted → reviewed → contacted → in conversation → meeting
+ * booked → quote sent → client, with "not relevant" as the closed lane. Adding
+ * a value to a Postgres enum is additive, so the machinery around it — the
+ * dropdown, the audit trail, the board — does not change when it grows.
+ *
+ * Two open questions with her, deliberately not guessed at here: whether
+ * "reviewed" is a stage anything would ever sit in, and where the five
+ * organisations marked "have a contact" belong, since knowing a person there is
+ * not really a position on a pipeline.
+ */
+export const ORG_STAGES = ["not_contacted", "initial_email_sent", "have_a_contact"] as const;
+export type OrgStage = (typeof ORG_STAGES)[number];
+
+export const ORG_CONTACT_STATUS_LABEL: Record<OrgStage, string> = {
   not_contacted: "Not contacted",
   initial_email_sent: "Emailed",
   have_a_contact: "Have a contact",
 };
+
+/** Whether a stage means "no longer being pursued". None do yet — "not
+ *  relevant" arrives when the vocabulary widens, and the board needs to know
+ *  which lane is the closed one so it can sit apart from the live stages. */
+export const CLOSED_STAGES: readonly OrgStage[] = [];
