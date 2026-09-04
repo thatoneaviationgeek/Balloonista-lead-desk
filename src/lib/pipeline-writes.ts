@@ -16,7 +16,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { isIsoDate, todayInLondon } from "./dates";
+import { isClockTime, isIsoDate, londonInstant, todayInLondon } from "./dates";
 import {
   ACTIVITY_KINDS,
   FEEDBACK_REASONS,
@@ -37,6 +37,8 @@ import {
   activities,
   contacts,
   followUps,
+  jobEvents,
+  jobs,
   leadFeedback,
   leadEvents,
   leads,
@@ -789,4 +791,190 @@ export async function setLeadStatus(
       unchanged: false,
     },
   };
+}
+
+/* --------------------------------------------------------------------- jobs */
+
+const JOB_STATUS_VALUES = [
+  "enquiry", "quoted", "confirmed", "delivered", "invoiced", "cancelled",
+] as const;
+const JOB_TYPE_VALUES = ["install", "courier", "set_dec", "other"] as const;
+type JobStatusValue = (typeof JOB_STATUS_VALUES)[number];
+type JobTypeValue = (typeof JOB_TYPE_VALUES)[number];
+
+/**
+ * Turn a date and an optional clock time into the instant to store.
+ *
+ * The board takes a London date and time from the person filling the form; the
+ * column is `timestamptz`. `londonInstant` does the conversion properly across
+ * the clock changes — see the comment on it, and the checks in
+ * `src/scripts/check-dates.ts`.
+ */
+function whenFrom(dateIso: unknown, time: unknown): Date | null | "bad" {
+  if (!dateIso) return null;
+  if (!isIsoDate(dateIso)) return "bad";
+  if (time !== undefined && time !== null && time !== "" && !isClockTime(time)) return "bad";
+  return londonInstant(dateIso, isClockTime(time) ? time : "00:00");
+}
+
+export async function createJob(
+  writer: Writer,
+  body: Record<string, unknown>,
+): Promise<WriteResult<{ id: string }>> {
+  const title = text(body.title);
+  if (!title) return fail(400, "A job needs a title — what is it, in a few words");
+
+  const statusRaw = text(body.status) ?? "enquiry";
+  if (!(JOB_STATUS_VALUES as readonly string[]).includes(statusRaw)) {
+    return fail(400, `status must be one of: ${JOB_STATUS_VALUES.join(", ")}`);
+  }
+  const typeRaw = text(body.type) ?? "other";
+  if (!(JOB_TYPE_VALUES as readonly string[]).includes(typeRaw)) {
+    return fail(400, `type must be one of: ${JOB_TYPE_VALUES.join(", ")}`);
+  }
+
+  const startsAt = whenFrom(body.startsOn, body.startsAtTime);
+  if (startsAt === "bad") return fail(400, "The start needs a date as YYYY-MM-DD and a time as HH:mm");
+  const endsAt = whenFrom(body.endsOn ?? body.startsOn, body.endsAtTime);
+  if (endsAt === "bad") return fail(400, "The end needs a date as YYYY-MM-DD and a time as HH:mm");
+  if (startsAt && endsAt && endsAt < startsAt) {
+    return fail(400, "The job cannot finish before it starts");
+  }
+
+  let valuePence: number | null = null;
+  if (body.valuePence !== undefined && body.valuePence !== null && body.valuePence !== "") {
+    const n = Number(body.valuePence);
+    if (!Number.isInteger(n) || n < 0) return fail(400, "Value must be a whole number of pence");
+    valuePence = n;
+  }
+
+  const ownerId = text(body.ownerId);
+  if (ownerId) {
+    const found = (
+      await db.select({ id: people.id }).from(people).where(eq(people.id, ownerId)).limit(1)
+    )[0];
+    if (!found) return fail(404, "No such person");
+  }
+
+  const leadId = text(body.leadId);
+  if (leadId) {
+    const found = (
+      await db.select({ id: leads.id }).from(leads).where(eq(leads.id, leadId)).limit(1)
+    )[0];
+    if (!found) return fail(404, "No such lead");
+  }
+
+  const id = randomUUID();
+  const status = statusRaw as JobStatusValue;
+
+  await db.batch([
+    db.insert(jobs).values({
+      id,
+      region: body.region === "Dubai" ? "Dubai" : "UK",
+      title,
+      clientName: text(body.clientName),
+      venue: text(body.venue),
+      type: typeRaw as JobTypeValue,
+      status,
+      startsAt: startsAt ?? null,
+      endsAt: endsAt ?? null,
+      valuePence,
+      ownerId,
+      leadId,
+      notes: text(body.notes),
+    }),
+    /* Created is a status event with nothing before it. `job_events` was built
+       for exactly this — `fromStatus` is nullable and `action` says which kind
+       of change a row describes. */
+    db.insert(jobEvents).values({
+      jobId: id,
+      actorId: writer.personId || null,
+      actorEmail: writer.email,
+      action: "status",
+      fromStatus: null,
+      toStatus: status,
+      note: "Added by hand",
+    }),
+  ]);
+
+  return { ok: true, data: { id } };
+}
+
+export type JobChangeResult = { id: string; unchanged: boolean };
+
+export async function setJobStatus(
+  writer: Writer,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<WriteResult<JobChangeResult>> {
+  const statusRaw = body.status;
+  if (typeof statusRaw !== "string" || !(JOB_STATUS_VALUES as readonly string[]).includes(statusRaw)) {
+    return fail(400, `status must be one of: ${JOB_STATUS_VALUES.join(", ")}`);
+  }
+  const next = statusRaw as JobStatusValue;
+
+  const job = (
+    await db.select({ id: jobs.id, status: jobs.status }).from(jobs).where(eq(jobs.id, id)).limit(1)
+  )[0];
+  if (!job) return fail(404, "No such job");
+  if (job.status === next) return { ok: true, data: { id, unchanged: true } };
+
+  await db.batch([
+    db.update(jobs).set({ status: next, updatedAt: new Date() }).where(eq(jobs.id, id)),
+    db.insert(jobEvents).values({
+      jobId: id,
+      actorId: writer.personId || null,
+      actorEmail: writer.email,
+      action: "status",
+      fromStatus: job.status,
+      toStatus: next,
+      note: text(body.note),
+    }),
+  ]);
+
+  return { ok: true, data: { id, unchanged: false } };
+}
+
+/**
+ * Give a job to someone, or take it back.
+ *
+ * A confirmed job with nobody on it is the thing the board exists to surface,
+ * so who picked it up and when is worth recording — `job_events` carries an
+ * owner pair alongside the status pair precisely so an assignment is not
+ * squeezed into a status row.
+ */
+export async function assignJob(
+  writer: Writer,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<WriteResult<JobChangeResult>> {
+  const ownerId = text(body.ownerId); /* null clears it */
+
+  const job = (
+    await db.select({ id: jobs.id, ownerId: jobs.ownerId }).from(jobs).where(eq(jobs.id, id)).limit(1)
+  )[0];
+  if (!job) return fail(404, "No such job");
+
+  if (ownerId) {
+    const found = (
+      await db.select({ id: people.id }).from(people).where(eq(people.id, ownerId)).limit(1)
+    )[0];
+    if (!found) return fail(404, "No such person");
+  }
+  if (job.ownerId === ownerId) return { ok: true, data: { id, unchanged: true } };
+
+  await db.batch([
+    db.update(jobs).set({ ownerId, updatedAt: new Date() }).where(eq(jobs.id, id)),
+    db.insert(jobEvents).values({
+      jobId: id,
+      actorId: writer.personId || null,
+      actorEmail: writer.email,
+      action: "assignment",
+      fromOwnerId: job.ownerId,
+      toOwnerId: ownerId,
+      note: text(body.note),
+    }),
+  ]);
+
+  return { ok: true, data: { id, unchanged: false } };
 }

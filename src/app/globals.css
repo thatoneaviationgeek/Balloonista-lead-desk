@@ -490,3 +490,32 @@ footer p { max-width:72ch; }
 .org-leads a:hover { border-bottom-color:var(--accent); }
 .org-leads a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
+/* ------------------------------------------------------------------ jobs --- */
+/* Job status has its own ramp rather than borrowing the fit palette: a job and
+   a lead can sit on the same screen once a job shows the lead it came from, so
+   reusing those tokens would make one colour mean two things. */
+.t-job-enquiry   { background:var(--surface-2); color:var(--ink-2); }
+.t-job-quoted    { background:var(--med-bg);  color:var(--med-ink); }
+.t-job-confirmed { background:var(--high-bg); color:var(--high-ink); }
+.t-job-delivered { background:var(--accent-soft); color:var(--accent); }
+.t-job-invoiced  { background:var(--ok-bg);   color:var(--ok-ink); }
+.t-job-cancelled { background:var(--low-bg);  color:var(--low-ink); }
+
+.job-day { margin:26px 0 0; }
+.job-when {
+  margin:2px 0 0; font-size:.9rem; font-weight:600; color:var(--ink-2);
+  font-variant-numeric:tabular-nums;
+}
+.job-owner { margin:12px 0 0; font-size:.86rem; color:var(--ink-3); }
+/* The whole point of the board: confirmed, dated, nobody going. */
+.job-card.is-unresourced { border-left:3px solid var(--no-ink); }
+
+.weeknav { display:inline-flex; align-items:center; gap:10px; margin-left:6px; }
+.weeknav-label {
+  font-size:.86rem; font-weight:700; color:var(--ink);
+  min-width:8.5em; text-align:center; font-variant-numeric:tabular-nums;
+}
+
+.fld-row { display:grid; gap:12px; grid-template-columns:1fr; }
+@media (min-width:560px) { .fld-row { grid-template-columns:repeat(3, 1fr); } }
+

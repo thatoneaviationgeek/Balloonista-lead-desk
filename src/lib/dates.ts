@@ -28,9 +28,33 @@ const londonDay = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
+/**
+ * The London calendar date an instant falls on, as `YYYY-MM-DD`.
+ *
+ * Follow-ups store a day and never have this problem. A job stores an *instant*
+ * — "the install is at 09:00 on the 13th" — so working out which day, and
+ * therefore which week, it belongs to has to be done in London. An install at
+ * 00:30 BST is 23:30 UTC the day before, and would otherwise show up in the
+ * wrong week for the half-hour that matters most to whoever is driving to it.
+ */
+export function londonDateOf(instant: Date): string {
+  return londonDay.format(instant);
+}
+
 /** Today where Aurelija is, as `YYYY-MM-DD`. Never the server's idea of today. */
 export function todayInLondon(now: Date = new Date()): string {
   return londonDay.format(now);
+}
+
+/** The time of day in London, `HH:mm`, for an instant. */
+const londonClock = new Intl.DateTimeFormat("en-GB", {
+  timeZone: LONDON,
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+export function londonTimeOf(instant: Date): string {
+  return londonClock.format(instant);
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,3 +105,77 @@ export function dueBucket(dueAt: string, today: string = todayInLondon()): DueBu
   if (dueAt < today) return "overdue";
   return dueAt <= addDays(today, 7) ? "next7" : "later";
 }
+
+/**
+ * The Monday of the week a date falls in, and the Sunday that ends it.
+ *
+ * Weeks start on Monday because that is how the work is talked about — "what is
+ * on this week" means Monday to Sunday, not a rolling seven days. Computed on
+ * date strings via addDays, so no zone is involved and the week that contains
+ * the clocks changing is still exactly seven dates long.
+ */
+export function weekOf(iso: string): { from: string; to: string } {
+  const [y, m, d] = iso.split("-").map(Number);
+  /* getUTCDay: 0 = Sunday. Shift so Monday is 0. */
+  const dow = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+  const from = addDays(iso, -dow);
+  return { from, to: addDays(from, 6) };
+}
+
+/** A week as it should be labelled: "13 – 19 Oct" or "29 Sep – 5 Oct". */
+export function weekLabel(from: string, to: string): string {
+  const fmt = (iso: string, withMonth: boolean) =>
+    new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", {
+      day: "numeric",
+      ...(withMonth ? { month: "short" } : {}),
+    });
+  const sameMonth = from.slice(0, 7) === to.slice(0, 7);
+  return `${fmt(from, !sameMonth)} – ${fmt(to, true)}`;
+}
+
+/** London's UTC offset in minutes at a given instant. +60 during BST, 0 in winter. */
+function offsetMinutesAt(instant: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: LONDON,
+    timeZoneName: "longOffset",
+  }).formatToParts(instant);
+  const tz = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const m = tz.match(/GMT([+-])(\d{2}):(\d{2})/);
+  if (!m) return 0; /* plain "GMT" means +00:00 */
+  return (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+/**
+ * A London wall-clock time turned into an instant.
+ *
+ * This is the awkward direction. Everywhere else in this file converts an
+ * instant to a London date, which is a lookup. Going the other way — "the
+ * install is at 09:00 on 13 October, what moment is that?" — means knowing
+ * whether the clocks had gone forward yet, and the answer depends on the very
+ * instant being calculated.
+ *
+ * So: interpret the wall clock as if it were UTC, ask what London's offset was
+ * around then, subtract it, and check the answer still holds. The second look
+ * matters only within an hour of a changeover, which is exactly when a naive
+ * conversion is wrong and nobody notices until an install is an hour out.
+ *
+ * `new Date("2026-10-13T09:00")` would parse in the *server's* zone, which is
+ * UTC on Vercel and something else on a laptop. Never use it for this.
+ */
+export function londonInstant(dateIso: string, time = "00:00"): Date {
+  const [y, mo, d] = dateIso.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  const asIfUtc = Date.UTC(y, mo - 1, d, hh || 0, mm || 0);
+
+  const firstGuess = offsetMinutesAt(new Date(asIfUtc));
+  let instant = new Date(asIfUtc - firstGuess * 60_000);
+  const settled = offsetMinutesAt(instant);
+  if (settled !== firstGuess) instant = new Date(asIfUtc - settled * 60_000);
+  return instant;
+}
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+export function isClockTime(value: unknown): value is string {
+  return typeof value === "string" && HHMM.test(value);
+}
+

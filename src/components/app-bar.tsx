@@ -1,10 +1,11 @@
 import { auth, signOut } from "@/auth";
 import { countOverdueForPerson } from "@/lib/due";
+import { countUnresourced } from "@/lib/jobs";
 
 export default async function AppBar({
   current,
 }: {
-  current?: "leads" | "due" | "organisations";
+  current?: "leads" | "due" | "organisations" | "jobs";
 }) {
   const session = await auth();
   if (!session?.user) return null;
@@ -12,6 +13,9 @@ export default async function AppBar({
   /* Hers, not everyone's. The point of putting it here is that a slipped
      follow-up is visible from the leads page without going looking for it. */
   const overdue = await countOverdueForPerson(session.user.id);
+  /* Confirmed work with nobody going to it. Everyone's, not hers — an
+     unresourced job is a problem for the business, not for one person. */
+  const unresourced = await countUnresourced();
 
   return (
     <div className="appbar">
@@ -27,6 +31,15 @@ export default async function AppBar({
             aria-current={current === "organisations" ? "page" : undefined}
           >
             Organisations
+          </a>
+          <a href="/jobs" aria-current={current === "jobs" ? "page" : undefined}>
+            Jobs
+            {unresourced > 0 ? (
+              <span className="ab-badge">
+                {unresourced}
+                <span className="sr-only"> confirmed with nobody assigned</span>
+              </span>
+            ) : null}
           </a>
           <a href="/due" aria-current={current === "due" ? "page" : undefined}>
             Due

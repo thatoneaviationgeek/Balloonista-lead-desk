@@ -23,13 +23,16 @@ import { config as loadEnv } from "dotenv";
 /* Next.js reads .env.local automatically; standalone scripts do not. */
 loadEnv({ path: [".env.local", ".env"], quiet: true });
 import { randomUUID } from "node:crypto";
-import { eq, like, sql } from "drizzle-orm";
+import { eq, inArray, like, sql } from "drizzle-orm";
 import { addDays, todayInLondon } from "../lib/dates";
 import {
+  assignJob,
   changeOrganisationStage,
   createFollowUp,
+  createJob,
   logActivity,
   recordFeedback,
+  setJobStatus,
   setLeadStatus,
   updateFollowUp,
   type Writer,
@@ -37,12 +40,15 @@ import {
 } from "../lib/pipeline-writes";
 import { buildDigest } from "../lib/digest";
 import { countOverdueForPerson, listDue } from "../lib/due";
+import { countUnresourced, listJobs } from "../lib/jobs";
 import { db } from "../db";
 import {
   activities,
   contacts,
   followUps,
   leadFeedback,
+  jobEvents,
+  jobs,
   leadEvents,
   leads,
   organisationEvents,
@@ -74,6 +80,8 @@ const TABLES = {
   lead_feedback: leadFeedback,
   lead_events: leadEvents,
   organisation_events: organisationEvents,
+  jobs,
+  job_events: jobEvents,
 } as const;
 
 async function counts() {
@@ -112,6 +120,8 @@ async function main() {
     what: "Synthetic row written by check-pipeline.ts.",
     contact: "GAP — synthetic test row, not a real contact",
   });
+
+  const createdJobs: string[] = [];
 
   try {
     /* 1 ------------------------------------- a New lead demands confirmation */
@@ -507,6 +517,76 @@ async function main() {
       refused(await setLeadStatus(writer, leadE, { status: "Maybe" }), 400));
     check("an unknown account is refused",
       refused(await setLeadStatus(writer, leadE, { status: "Approved", organisationId: randomUUID() }), 404));
+
+    /* 13 ------------------------------------------------------------- jobs */
+    console.log("\n13. Jobs: creating, moving and assigning");
+
+    const madeJob = await createJob(writer, {
+      title: `TEST JOB — harness ${TAG} (safe to delete)`,
+      clientName: "TEST CLIENT",
+      venue: "TEST VENUE",
+      type: "install",
+      status: "confirmed",
+      startsOn: "2026-07-13",
+      startsAtTime: "09:00",
+      endsAtTime: "13:00",
+      valuePence: 150000,
+      leadId: leadE,
+    });
+    check("created", madeJob.ok, madeJob.ok ? "" : madeJob.error);
+    if (!madeJob.ok) throw new Error("cannot continue");
+    createdJobs.push(madeJob.data.id);
+
+    const [jobRow] = await db.select().from(jobs).where(eq(jobs.id, madeJob.data.id)).limit(1);
+    /* 09:00 London on 13 July is 08:00Z — the whole point of londonInstant. */
+    check("the start is stored as the right instant",
+      jobRow.startsAt?.toISOString() === "2026-07-13T08:00:00.000Z",
+      String(jobRow.startsAt?.toISOString()));
+    check("value is pence, not pounds", jobRow.valuePence === 150000, String(jobRow.valuePence));
+    check("nobody assigned yet", jobRow.ownerId === null);
+    check("linked to the lead it came from", jobRow.leadId === leadE);
+
+    const created0 = await db.select().from(jobEvents).where(eq(jobEvents.jobId, madeJob.data.id));
+    check("creation wrote one audit row", created0.length === 1, `found ${created0.length}`);
+    check("with no previous status",
+      created0[0]?.fromStatus === null && created0[0]?.toStatus === "confirmed");
+
+    /* It is confirmed, dated and unassigned — which is the flag the board is for. */
+    const boardBefore = await listJobs();
+    const onBoard = boardBefore.find((j) => j.id === madeJob.data.id);
+    check("it reads as unresourced", onBoard?.unresourced === true);
+    check("and its London date survived the round trip", onBoard?.startsOn === "2026-07-13",
+      String(onBoard?.startsOn));
+    check("as did the clock time", onBoard?.startsAtTime === "09:00", String(onBoard?.startsAtTime));
+    check("the app bar count sees it", (await countUnresourced()) >= 1);
+
+    const assigned = await assignJob(writer, madeJob.data.id, { ownerId: actor.id });
+    check("assigning works", assigned.ok, assigned.ok ? "" : assigned.error);
+    const afterAssign = (await listJobs()).find((j) => j.id === madeJob.data.id);
+    check("no longer unresourced", afterAssign?.unresourced === false);
+    check("and the owner shows", afterAssign?.ownerEmail === actor.email);
+    check("assigning again is a no-op",
+      (await assignJob(writer, madeJob.data.id, { ownerId: actor.id })).ok &&
+        (await db.select().from(jobEvents).where(eq(jobEvents.jobId, madeJob.data.id))).length === 2);
+
+    const jobMoved = await setJobStatus(writer, madeJob.data.id, { status: "delivered" });
+    check("status moves", jobMoved.ok, jobMoved.ok ? "" : jobMoved.error);
+    const evs2 = await db.select().from(jobEvents).where(eq(jobEvents.jobId, madeJob.data.id));
+    check("three audit rows: created, assigned, moved", evs2.length === 3, `found ${evs2.length}`);
+    check("the assignment row records the owner pair",
+      evs2.some((e) => e.action === "assignment" && e.fromOwnerId === null && e.toOwnerId === actor.id));
+
+    check("a job with no title is refused", refused(await createJob(writer, {}), 400));
+    check("an unknown status is refused",
+      refused(await createJob(writer, { title: "x", status: "maybe" }), 400));
+    check("a bad time is refused",
+      refused(await createJob(writer, { title: "x", startsOn: "2026-07-13", startsAtTime: "9am" }), 400));
+    check("finishing before starting is refused",
+      refused(await createJob(writer, {
+        title: "x", startsOn: "2026-07-13", startsAtTime: "12:00", endsAtTime: "09:00",
+      }), 400));
+    check("an unknown job is refused",
+      refused(await setJobStatus(writer, randomUUID(), { status: "quoted" }), 404));
   } finally {
     /* 11 --------------------------------------------------------- tidy up */
     console.log("\n12. Cleaning up");
@@ -517,6 +597,11 @@ async function main() {
     if (taggedLeads.some((r) => !r.k.startsWith(TAG))) throw new Error("refusing to delete untagged leads");
     if (taggedOrgs.some((r) => !r.k.includes(TAG.toLowerCase()))) throw new Error("refusing to delete untagged organisations");
 
+    if (createdJobs.length) {
+      /* Jobs carry no dedupe key, so this run tracks the ids it created.
+         job_events cascade with the job. */
+      await db.delete(jobs).where(inArray(jobs.id, createdJobs));
+    }
     if (taggedLeads.length) await db.delete(leads).where(like(leads.dedupeKey, `${TAG}%`));
     if (taggedOrgs.length) {
       await db.delete(organisations).where(like(organisations.dedupeKey, `%${TAG.toLowerCase()}%`));
