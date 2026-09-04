@@ -600,3 +600,193 @@ export async function changeOrganisationStage(
     data: { organisationId, from: org.stage, to: stage as OrgStage, followUpId, unchanged: false },
   };
 }
+
+/* ------------------------------------------- lead status, and attaching it */
+
+const LEAD_STATUSES = ["New", "Approved", "Rejected"] as const;
+type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+export type SetLeadStatusResult = {
+  leadId: string;
+  from: LeadStatus;
+  to: LeadStatus;
+  organisationId: string | null;
+  organisationCreated: boolean;
+  unchanged: boolean;
+};
+
+/**
+ * Approve, reject or un-review a lead — and, on the same call, say which
+ * organisation it belongs to.
+ *
+ * Aurelija asked whether approving a lead moves it into the organisations
+ * section. It links rather than converts: "Chain of Hope Gala Ball, 13 November"
+ * is a moment, the charity behind it is the account, and next year's gala is a
+ * second moment against the same account. From her side it still reads as
+ * moving, because the lead desk already filters to unreviewed leads and an
+ * approved one drops out of her working view the moment she approves it.
+ *
+ * Status and attachment go in one batch so a lead cannot end up approved but
+ * unattached because the second request failed.
+ *
+ * What this deliberately does not do is turn the lead's `contact` field into a
+ * contact row. That field is free text and frequently `GAP — …`; splitting
+ * "Emma Smith, Events Manager" into a name and a role means guessing, and
+ * AGENTS.md forbids inventing contact data. Log contact already creates the
+ * person properly, by asking.
+ */
+export async function setLeadStatus(
+  writer: Writer,
+  leadId: string,
+  body: Record<string, unknown>,
+): Promise<WriteResult<SetLeadStatusResult>> {
+  const status = body.status;
+  if (typeof status !== "string" || !(LEAD_STATUSES as readonly string[]).includes(status)) {
+    return fail(400, `status must be one of: ${LEAD_STATUSES.join(", ")}`);
+  }
+  const next = status as LeadStatus;
+
+  const lead = (
+    await db
+      .select({
+        id: leads.id,
+        status: leads.status,
+        region: leads.region,
+        title: leads.title,
+        entity: leads.entity,
+        whereText: leads.whereText,
+        organisationId: leads.organisationId,
+      })
+      .from(leads)
+      .where(eq(leads.id, leadId))
+      .limit(1)
+  )[0];
+  if (!lead) return fail(404, "No such lead");
+
+  const note = text(body.note);
+  const now = new Date();
+  const writes: Write[] = [];
+
+  /* --- which organisation, if any --- */
+  let organisationId = text(body.organisationId) ?? null;
+  let organisationCreated = false;
+  const newOrganisation = record(body.newOrganisation);
+
+  if (!organisationId && newOrganisation) {
+    /* Seeded from what the lead already knows: the hiring entity is a better
+       name than the title of the moment, so prefer it when there is one. */
+    const name = text(newOrganisation.name) ?? text(lead.entity) ?? lead.title;
+    const dedupeKey = organisationDedupeKey(name);
+    const region = newOrganisation.region === "Dubai" || newOrganisation.region === "UK"
+      ? (newOrganisation.region as "UK" | "Dubai")
+      : lead.region;
+
+    const existing = (
+      await db
+        .select({ id: organisations.id })
+        .from(organisations)
+        .where(and(eq(organisations.region, region), eq(organisations.dedupeKey, dedupeKey)))
+        .limit(1)
+    )[0];
+
+    if (existing) {
+      /* She asked for a new one, but that name already exists in this region —
+         reuse it rather than refusing or creating a near-duplicate. */
+      organisationId = existing.id;
+    } else {
+      organisationId = randomUUID();
+      organisationCreated = true;
+      writes.push(
+        db.insert(organisations).values({
+          id: organisationId,
+          region,
+          dedupeKey,
+          name,
+          location: text(newOrganisation.location) ?? lead.whereText,
+        }),
+      );
+    }
+  } else if (organisationId) {
+    const found = (
+      await db
+        .select({ id: organisations.id })
+        .from(organisations)
+        .where(eq(organisations.id, organisationId))
+        .limit(1)
+    )[0];
+    if (!found) return fail(404, "No such organisation");
+  }
+
+  const statusChanging = lead.status !== next;
+  const linkChanging = organisationId !== null && organisationId !== lead.organisationId;
+
+  if (!statusChanging && !linkChanging && note === null) {
+    return {
+      ok: true,
+      data: {
+        leadId,
+        from: lead.status,
+        to: lead.status,
+        organisationId: lead.organisationId,
+        organisationCreated: false,
+        unchanged: true,
+      },
+    };
+  }
+
+  writes.push(
+    db
+      .update(leads)
+      .set({
+        ...(statusChanging
+          ? { status: next, statusChangedAt: now, statusChangedBy: writer.personId || null }
+          : {}),
+        ...(linkChanging ? { organisationId } : {}),
+        ...(note !== null ? { notes: note } : {}),
+        updatedAt: now,
+      })
+      .where(eq(leads.id, leadId)),
+  );
+
+  if (statusChanging) {
+    writes.push(
+      db.insert(leadEvents).values({
+        leadId,
+        actorId: writer.personId || null,
+        actorEmail: writer.email,
+        fromStatus: lead.status,
+        toStatus: next,
+        note,
+      }),
+    );
+  }
+
+  /* The organisation gets its own audit line, because "where did this account
+     come from" is asked from that side. `lead_events` cannot carry it: its
+     `toStatus` is NOT NULL, so it can only describe a status transition. */
+  if (linkChanging && organisationId) {
+    writes.push(
+      db.insert(organisationEvents).values({
+        organisationId,
+        actorId: writer.personId || null,
+        actorEmail: writer.email,
+        action: "note",
+        note: `Linked from the lead "${lead.title}"`,
+      }),
+    );
+  }
+
+  await db.batch(writes as [Write, ...Write[]]);
+
+  return {
+    ok: true,
+    data: {
+      leadId,
+      from: lead.status,
+      to: next,
+      organisationId: organisationId ?? lead.organisationId,
+      organisationCreated,
+      unchanged: false,
+    },
+  };
+}

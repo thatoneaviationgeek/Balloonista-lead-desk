@@ -139,6 +139,7 @@ export default function OrganisationCard({
         <span className="org-toggle-counts">
           {org.contacts.length} contact{org.contacts.length === 1 ? "" : "s"}
           {org.activities.length ? ` · ${org.activities.length} logged` : ""}
+          {org.leads.length ? ` · ${org.leads.length} lead${org.leads.length === 1 ? "" : "s"}` : ""}
           {org.notes ? " · notes" : ""}
         </span>
       </button>
@@ -180,6 +181,21 @@ export default function OrganisationCard({
                   <p key={i}>{para}</p>
                 ))}
               </div>
+            </section>
+          ) : null}
+
+          {org.leads.length ? (
+            <section className="org-section">
+              <h4>Leads that came in through this account</h4>
+              <ul className="org-leads">
+                {org.leads.map((l) => (
+                  <li key={l.id}>
+                    <span className="tag t-agent">{l.agent}</span>
+                    <a href={`/leads?focus=${l.id}`}>{l.title}</a>
+                    <span className={"tag t-" + l.status.toLowerCase()}>{l.status}</span>
+                  </li>
+                ))}
+              </ul>
             </section>
           ) : null}
 

@@ -5,6 +5,7 @@ import LeadsClient from "./leads-client";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { loadLeadExtras } from "@/lib/lead-extras";
+import { listOrganisationOptions } from "@/lib/organisations";
 import { leads as leadsTable } from "@/db/schema";
 import type { LeadView } from "@/lib/leads";
 
@@ -41,6 +42,8 @@ export default async function LeadsPage({
     rows.map((r) => r.id),
     session.user.id,
   );
+  /* For the picker when she approves a lead and says which account it is. */
+  const organisationOptions = await listOrganisationOptions();
 
   const leads: LeadView[] = rows.map((r) => ({
     id: r.id,
@@ -98,6 +101,7 @@ export default async function LeadsPage({
         </header>
 
         <LeadsClient
+          organisations={organisationOptions}
           initialLeads={leads}
           canDecide={session.user.role === "owner" || session.user.role === "staff"}
           region={region}

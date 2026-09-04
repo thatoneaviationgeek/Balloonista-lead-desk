@@ -467,3 +467,26 @@ footer p { max-width:72ch; }
 .org-compact h3 { font-size:.92rem; }
 .org-compact .actions { margin-top:11px; }
 
+/* ------------------------------------------ approving a lead into an account --- */
+.ap-matches { display:grid; gap:7px; }
+.ap-match {
+  font:inherit; text-align:left; cursor:pointer;
+  background:var(--surface); border:1px solid var(--rule-2); border-radius:9px;
+  padding:11px 13px; display:grid; gap:2px; min-height:34px;
+}
+.ap-match:hover:not(:disabled) { border-color:var(--accent); background:var(--accent-soft); }
+.ap-match:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.ap-match:disabled { opacity:.55; cursor:not-allowed; }
+.ap-match-name { font-size:.92rem; font-weight:600; color:var(--ink); }
+.ap-match-meta { font-size:.8rem; color:var(--ink-3); }
+
+/* Leads listed on the account they were approved into. */
+.org-leads { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+.org-leads li {
+  display:flex; gap:9px; align-items:center; flex-wrap:wrap;
+  font-size:.88rem; border-left:2px solid var(--rule); padding:2px 0 2px 11px;
+}
+.org-leads a { color:var(--ink); text-decoration:none; border-bottom:1px solid var(--rule-2); }
+.org-leads a:hover { border-bottom-color:var(--accent); }
+.org-leads a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+

@@ -30,6 +30,7 @@ import {
   createFollowUp,
   logActivity,
   recordFeedback,
+  setLeadStatus,
   updateFollowUp,
   type Writer,
   type WriteResult,
@@ -415,6 +416,97 @@ async function main() {
       refused(await changeOrganisationStage(writer, organisationId!, { stage: "won" }), 400));
     check("an unknown organisation is refused",
       refused(await changeOrganisationStage(writer, randomUUID(), { stage: "not_contacted" }), 404));
+
+    /* 12 ------------------------------- approving a lead onto an account */
+    console.log("\n12. Approving a lead attaches it to an organisation");
+
+    /* A second synthetic lead: the first was approved back in step 2. */
+    const leadB = randomUUID();
+    await db.insert(leads).values({
+      id: leadB,
+      region: "UK",
+      dedupeKey: `${TAG}-lead-b`,
+      agent: "Hotels",
+      title: `TEST ROW — approve harness ${TAG} (safe to delete)`,
+      entity: `TEST ENTITY ${TAG}`,
+      what: "Synthetic row written by check-pipeline.ts.",
+      contact: "GAP — synthetic test row, not a real contact",
+    });
+
+    const attached = await setLeadStatus(writer, leadB, {
+      status: "Approved",
+      organisationId,
+    });
+    check("approved and attached", attached.ok, attached.ok ? "" : attached.error);
+    if (!attached.ok) throw new Error("cannot continue");
+    check("reports the transition", attached.data.from === "New" && attached.data.to === "Approved");
+    check("reports the account", attached.data.organisationId === organisationId);
+    check("did not create one", attached.data.organisationCreated === false);
+
+    const [leadBRow] = await db.select().from(leads).where(eq(leads.id, leadB)).limit(1);
+    check("the lead is Approved", leadBRow.status === "Approved", leadBRow.status);
+    check("organisationId is set", leadBRow.organisationId === organisationId);
+    check("statusChangedBy records who", leadBRow.statusChangedBy === actor.id);
+
+    const bEvents = await db.select().from(leadEvents).where(eq(leadEvents.leadId, leadB));
+    check("one lead_events row", bEvents.length === 1, `found ${bEvents.length}`);
+    check("New to Approved", bEvents[0]?.fromStatus === "New" && bEvents[0]?.toStatus === "Approved");
+
+    const orgNotes = (await db.select().from(organisationEvents)
+      .where(eq(organisationEvents.organisationId, organisationId!)))
+      .filter((e) => e.action === "note");
+    check("the account records where it was linked from",
+      orgNotes.some((e) => (e.note ?? "").includes("approve harness")),
+      orgNotes.map((e) => e.note).join(" | "));
+
+    /* Creating an account from the lead, then the same name again. */
+    const leadC = randomUUID();
+    await db.insert(leads).values({
+      id: leadC, region: "UK", dedupeKey: `${TAG}-lead-c`, agent: "Hotels",
+      title: `TEST ROW — new account ${TAG} (safe to delete)`,
+      what: "Synthetic row.", contact: "GAP — synthetic test row, not a real contact",
+    });
+    const madeAccount = await setLeadStatus(writer, leadC, {
+      status: "Approved",
+      newOrganisation: { name: `TEST NEW ACCOUNT ${TAG}` },
+    });
+    check("creating an account works", madeAccount.ok, madeAccount.ok ? "" : madeAccount.error);
+    check("and says it created one", madeAccount.ok && madeAccount.data.organisationCreated === true);
+
+    const leadD = randomUUID();
+    await db.insert(leads).values({
+      id: leadD, region: "UK", dedupeKey: `${TAG}-lead-d`, agent: "Hotels",
+      title: `TEST ROW — dupe account ${TAG} (safe to delete)`,
+      what: "Synthetic row.", contact: "GAP — synthetic test row, not a real contact",
+    });
+    const reusedAccount = await setLeadStatus(writer, leadD, {
+      status: "Approved",
+      newOrganisation: { name: `TEST NEW ACCOUNT ${TAG}` },
+    });
+    check("the same name reuses rather than duplicating",
+      reusedAccount.ok && reusedAccount.data.organisationCreated === false &&
+        madeAccount.ok && reusedAccount.data.organisationId === madeAccount.data.organisationId);
+
+    /* Approving without linking is allowed — she may not know the account yet. */
+    const leadE = randomUUID();
+    await db.insert(leads).values({
+      id: leadE, region: "UK", dedupeKey: `${TAG}-lead-e`, agent: "Hotels",
+      title: `TEST ROW — unlinked ${TAG} (safe to delete)`,
+      what: "Synthetic row.", contact: "GAP — synthetic test row, not a real contact",
+    });
+    const bare = await setLeadStatus(writer, leadE, { status: "Approved" });
+    check("approving without an account works", bare.ok);
+    const [leadERow] = await db.select().from(leads).where(eq(leads.id, leadE)).limit(1);
+    check("status moved but no account attached",
+      leadERow.status === "Approved" && leadERow.organisationId === null);
+
+    check("re-approving is a no-op",
+      (await setLeadStatus(writer, leadE, { status: "Approved" })).ok &&
+        (await db.select().from(leadEvents).where(eq(leadEvents.leadId, leadE))).length === 1);
+    check("an unknown status is refused",
+      refused(await setLeadStatus(writer, leadE, { status: "Maybe" }), 400));
+    check("an unknown account is refused",
+      refused(await setLeadStatus(writer, leadE, { status: "Approved", organisationId: randomUUID() }), 404));
   } finally {
     /* 11 --------------------------------------------------------- tidy up */
     console.log("\n12. Cleaning up");

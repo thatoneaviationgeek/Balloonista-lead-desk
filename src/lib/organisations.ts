@@ -4,10 +4,10 @@
  *
  * Server only. Four queries for the whole page rather than one per row.
  */
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, isNotNull } from "drizzle-orm";
 import type { ActivityKind } from "./pipeline";
 import { db } from "@/db";
-import { activities, contacts, followUps, organisations, people } from "@/db/schema";
+import { activities, contacts, followUps, leads, organisations, people } from "@/db/schema";
 
 export type OrgContact = {
   id: string;
@@ -28,6 +28,14 @@ export type OrgActivity = {
   contactName: string | null;
 };
 
+/** A scanner lead that was attached to this account when it was approved. */
+export type OrgLead = {
+  id: string;
+  title: string;
+  status: "New" | "Approved" | "Rejected";
+  agent: string;
+};
+
 export type OrganisationView = {
   id: string;
   name: string;
@@ -44,10 +52,11 @@ export type OrganisationView = {
   contacts: OrgContact[];
   activities: OrgActivity[];
   followUp: { id: string; dueAt: string; note: string | null } | null;
+  leads: OrgLead[];
 };
 
 export async function listOrganisations(): Promise<OrganisationView[]> {
-  const [orgRows, contactRows, activityRows, followUpRows] = await Promise.all([
+  const [orgRows, contactRows, activityRows, followUpRows, leadRows] = await Promise.all([
     db.select().from(organisations).orderBy(asc(organisations.name)),
 
     db
@@ -90,6 +99,21 @@ export async function listOrganisations(): Promise<OrganisationView[]> {
       .where(eq(followUps.status, "open"))
       /* Soonest first: the chip shows the next thing owed, not the last one set. */
       .orderBy(asc(followUps.dueAt)),
+
+    /* The other half of the link she asked for: which scanner leads came in
+       through this account. Only attached ones — organisationId is null until
+       somebody approves a lead and says which account it belongs to. */
+    db
+      .select({
+        id: leads.id,
+        organisationId: leads.organisationId,
+        title: leads.title,
+        status: leads.status,
+        agent: leads.agent,
+      })
+      .from(leads)
+      .where(isNotNull(leads.organisationId))
+      .orderBy(desc(leads.lastSeenAt)),
   ]);
 
   const contactsByOrg = new Map<string, OrgContact[]>();
@@ -121,6 +145,14 @@ export async function listOrganisations(): Promise<OrganisationView[]> {
     activitiesByOrg.set(a.organisationId, list);
   }
 
+  const leadsByOrg = new Map<string, OrgLead[]>();
+  for (const l of leadRows) {
+    if (!l.organisationId) continue;
+    const list = leadsByOrg.get(l.organisationId) ?? [];
+    list.push({ id: l.id, title: l.title, status: l.status, agent: l.agent });
+    leadsByOrg.set(l.organisationId, list);
+  }
+
   const followUpByOrg = new Map<string, { id: string; dueAt: string; note: string | null }>();
   for (const f of followUpRows) {
     if (f.organisationId && !followUpByOrg.has(f.organisationId)) {
@@ -144,5 +176,32 @@ export async function listOrganisations(): Promise<OrganisationView[]> {
     contacts: contactsByOrg.get(o.id) ?? [],
     activities: activitiesByOrg.get(o.id) ?? [],
     followUp: followUpByOrg.get(o.id) ?? null,
+    leads: leadsByOrg.get(o.id) ?? [],
   }));
+}
+
+/** Just enough of each organisation to pick one when approving a lead. */
+export type OrganisationOption = {
+  id: string;
+  name: string;
+  sector: string | null;
+  region: "UK" | "Dubai";
+};
+
+/**
+ * The whole list, for the approve-a-lead picker. Fifty-seven rows of three
+ * columns is small enough to send to the browser and filter there, which keeps
+ * the picker instant and avoids a search endpoint that would need its own
+ * authorisation.
+ */
+export async function listOrganisationOptions(): Promise<OrganisationOption[]> {
+  return db
+    .select({
+      id: organisations.id,
+      name: organisations.name,
+      sector: organisations.sector,
+      region: organisations.region,
+    })
+    .from(organisations)
+    .orderBy(asc(organisations.name));
 }

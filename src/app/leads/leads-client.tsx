@@ -4,15 +4,18 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import LeadCard from "@/components/lead-card";
 import { AGENT_LABEL, FIT_ORDER, type LeadStatus, type LeadView } from "@/lib/leads";
+import type { OrganisationOption } from "@/lib/organisations";
 
 type StatusFilter = "Open" | "Approved" | "Rejected" | "All";
 
 export default function LeadsClient({
   initialLeads,
+  organisations,
   canDecide,
   region,
 }: {
   initialLeads: LeadView[];
+  organisations: OrganisationOption[];
   canDecide: boolean;
   region: "UK" | "Dubai";
 }) {
@@ -200,6 +203,7 @@ export default function LeadsClient({
               canDecide={canDecide}
               busy={busyId === l.id}
               onDecide={decide}
+              organisations={organisations}
               /* Logging contact or setting a follow-up changes rows this page
                  read on the server, so re-read rather than guessing locally. */
               onChanged={() => router.refresh()}

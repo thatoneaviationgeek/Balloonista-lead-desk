@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import ApproveLeadDialog from "./approve-lead-dialog";
 import FollowUpDialog from "./follow-up-dialog";
 import LogContactDialog from "./log-contact-dialog";
 import { isGap, type LeadStatus, type LeadView } from "@/lib/leads";
@@ -12,6 +13,7 @@ import {
   type FeedbackReason,
   type WriteSubject,
 } from "@/lib/pipeline";
+import type { OrganisationOption } from "@/lib/organisations";
 
 /* Noon UTC is the same calendar day in London all year, so a date-only string
    formats without the zone shifting it. */
@@ -28,18 +30,26 @@ export default function LeadCard({
   busy,
   onDecide,
   onChanged,
+  organisations,
 }: {
   lead: LeadView;
   canDecide: boolean;
   busy: boolean;
   onDecide: (id: string, status: LeadStatus) => void;
   onChanged: () => void;
+  organisations: OrganisationOption[];
 }) {
   const done = lead.status !== "New";
   const showEntity = lead.entity && lead.entity !== "—";
   const showAddress = lead.address && lead.address !== "—";
 
-  const [dialog, setDialog] = useState<"log" | "follow" | null>(null);
+  const [dialog, setDialog] = useState<"log" | "follow" | "approve" | null>(null);
+
+  /* The picker is sent the whole list, so the attached account's name is
+     already here — no extra query to show it. */
+  const account = lead.organisationId
+    ? (organisations.find((o) => o.id === lead.organisationId) ?? null)
+    : null;
   const [askingReason, setAskingReason] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -118,6 +128,14 @@ export default function LeadCard({
           <>
             <dt>Write to</dt>
             <dd>{lead.address}</dd>
+          </>
+        ) : null}
+        {account ? (
+          <>
+            <dt>Account</dt>
+            <dd>
+              <a href={`/organisations?focus=${account.id}`}>{account.name}</a>
+            </dd>
           </>
         ) : null}
         {lead.src ? (
@@ -230,7 +248,7 @@ export default function LeadCard({
                 className="btn btn-ok"
                 type="button"
                 disabled={busy}
-                onClick={() => onDecide(lead.id, "Approved")}
+                onClick={() => setDialog("approve")}
               >
                 Approve
               </button>
@@ -269,6 +287,14 @@ export default function LeadCard({
         </>
       ) : null}
 
+      {dialog === "approve" ? (
+        <ApproveLeadDialog
+          lead={lead}
+          organisations={organisations}
+          onClose={() => setDialog(null)}
+          onApproved={onChanged}
+        />
+      ) : null}
       {dialog === "log" ? (
         <LogContactDialog subject={subject} onClose={() => setDialog(null)} onLogged={onChanged} />
       ) : null}
