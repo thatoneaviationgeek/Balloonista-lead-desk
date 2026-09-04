@@ -6,13 +6,28 @@ import { people } from "@/db/schema";
 
 export type AppRole = "owner" | "staff" | "viewer";
 
+/**
+ * The Workspace domain that admits someone automatically, normalised.
+ *
+ * Tolerates `@balloonista.co.uk` as well as `balloonista.co.uk`. The leading @
+ * is an easy thing to type into a settings box, and without this the value is
+ * concatenated into `@@balloonista.co.uk`, which matches nothing — so every
+ * person on the domain is refused with a message saying they are "not on the
+ * allow-list", which is true but sends you looking in entirely the wrong place.
+ * It cost a real afternoon; hence the two characters of defence.
+ */
+function allowedDomain(): string | null {
+  const raw = process.env.ALLOWED_EMAIL_DOMAIN?.toLowerCase().trim().replace(/^@+/, "");
+  return raw ? raw : null;
+}
+
 /** Who is allowed in: a row in `people` (active), or the Workspace domain. */
 async function resolvePerson(email: string) {
   const rows = await db.select().from(people).where(eq(people.email, email)).limit(1);
   const existing = rows[0];
   if (existing) return existing.active ? existing : null;
 
-  const domain = process.env.ALLOWED_EMAIL_DOMAIN?.toLowerCase().trim();
+  const domain = allowedDomain();
   if (!domain || !email.toLowerCase().endsWith("@" + domain)) return null;
 
   /* First sign-in from the Workspace domain: create the person as staff.
@@ -50,7 +65,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
 
       if (!person) {
-        const domain = process.env.ALLOWED_EMAIL_DOMAIN?.toLowerCase().trim();
+        const domain = allowedDomain();
         console.warn(
           `[auth] refused ${email}: not on the allow-list` +
             (domain
