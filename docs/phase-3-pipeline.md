@@ -45,7 +45,48 @@ account moving through the pipeline. **Approving a lead should offer to attach i
 to an organisation** — existing or new — and that attachment is what puts it in
 front of her on the board.
 
-### The stages — settled 4 September 2026
+### Settled, 4 September 2026 — after she had actually used it
+
+Her first session with the real panel reversed one earlier conclusion and closed
+both open questions. In her words:
+
+> I like having the leads in a different section from the organisations, as it
+> means I can work on them separately. Since these are cold leads, I don't know
+> if they need us or how to reach the right person so keeping them separate is
+> good. So my question is if they become warm leads and I approve them will they
+> move to the organisations section?
+>
+> I think the drop down options on the other section are enough: "Not
+> contacted," "Have a contact," and "emailed." Since I can set a follow up,
+> these statuses become my tracking method.
+
+**Two sections, not one.** She had said a separate list defeated the purpose;
+having used it she says the opposite, and gives a better reason than either of
+ours: a cold lead is a different kind of thing, because *"I don't know if they
+need us or how to reach the right person"*. The moments-versus-relationships
+split stands, and it stands on her reasoning rather than on the schema's.
+
+**Three stages, not eight.** The existing values are the list. Nothing is
+migrated, nothing is widened, and the eight-stage proposal below is dropped.
+The sentence that settles it is *"since I can set a follow up, these statuses
+become my tracking method"* — following up is a follow-up, not a column. A
+"Follow up" stage would only have duplicated the Due screen, and every record
+would have lived in it.
+
+**The order was wrong and is now hers.** You find the person, then you email
+them — so the board reads Not contacted → Have a contact → Emailed. It had them
+the other way round. No migration: the array order in `src/lib/pipeline.ts` is
+the only thing that defines it.
+
+**The one thing to build: approving a lead attaches it to an organisation.** She
+asked for it directly, which retires the deferral. Design is in the next section.
+
+### The earlier eight-stage proposal, superseded
+
+Kept for the reasoning about ordering and enum storage. The stage list itself is
+dead — see above.
+
+### The stages — as first proposed, 1 September 2026
 
 She described her actual process, which is shorter than the list she first gave
 and shorter than the one proposed below. In her words:
@@ -239,7 +280,46 @@ with.
 
 So: keep the panel, take HubSpot's stage model, and leave the rest.
 
-## The open question: one screen, or two
+## Approving a lead — the design
+
+She asked: *"if they become warm leads and I approve them will they move to the
+organisations section?"* Yes, and here is what that should mean precisely,
+because "move" is doing a lot of work in that sentence.
+
+**A lead is not an organisation and should not become one.** "Chain of Hope Gala
+Ball, 13 November" is a moment; the charity behind it is the account. Approving
+should *link* the two, not convert one into the other.
+
+**From her side it will look like moving**, because the lead desk already filters
+to unreviewed leads by default — an approved lead drops out of her working view
+the moment she approves it, and that behaviour already exists. What is missing is
+the other half: it should appear under Organisations.
+
+So, on approve:
+
+1. Ask which organisation this belongs to — a search over the 57 she already has,
+   with "create a new one" as the fallback.
+2. If new, seed it from what the lead already knows: `entity` or `title` for the
+   name, `whereText` for location, region from the lead. Stage starts at **Not
+   contacted**.
+3. Set `leads.organisationId`, which already exists and is already protected from
+   scanner reruns.
+4. Show the link on both cards — the lead says which account it belongs to, the
+   organisation lists the leads that came in through it.
+
+**What it deliberately will not do: parse the lead's `contact` field into a
+contact row.** That field is free text and is frequently `GAP — …`. Turning
+"Emma Smith, Events Manager" into structured columns means guessing where a name
+ends and a role begins, and AGENTS.md forbids inventing contact data. She already
+has a good path for this — Log contact creates the person inline — and it asks
+her rather than guessing.
+
+**Suggesting a match is worth doing.** Fifteen of her organisations are hotels
+and the new Hotels scanner will produce leads about hotels she already works, so
+the "which organisation" step should offer likely matches by name rather than
+starting from an empty box every time.
+
+## Superseded: one screen, or two
 
 Her closing paragraph is the part that is not yet settled:
 

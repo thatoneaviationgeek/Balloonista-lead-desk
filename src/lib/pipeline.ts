@@ -132,18 +132,19 @@ export const ORG_RELATIONSHIP_LABEL: Record<string, string> = {
  * spreadsheet, which is why the names read like her sheet rather than like a
  * sales pipeline.
  *
- * Widening this is where her answer lands (see `docs/phase-3-pipeline.md`):
- * roughly not contacted → reviewed → contacted → in conversation → meeting
- * booked → quote sent → client, with "not relevant" as the closed lane. Adding
- * a value to a Postgres enum is additive, so the machinery around it — the
- * dropdown, the audit trail, the board — does not change when it grows.
+ * **Settled 4 September 2026: these three are the list.** Aurelija looked at the
+ * dropdown and said they are enough — "since I can set a follow up, these
+ * statuses become my tracking method". So the eight-stage proposal is dropped
+ * and no migration is needed. Following up is a follow-up, not a stage, which
+ * is why a "follow up" column would only have duplicated the Due screen.
  *
- * Two open questions with her, deliberately not guessed at here: whether
- * "reviewed" is a stage anything would ever sit in, and where the five
- * organisations marked "have a contact" belong, since knowing a person there is
- * not really a position on a pipeline.
+ * The order is hers too, and it was wrong before: you find the person, then you
+ * email them. She listed them "Not contacted, Have a contact, emailed", so the
+ * board reads left to right in that order. This array is the order — nothing
+ * else defines it — and changing it needs no migration, because the enum only
+ * cares which values exist, not what sequence they are written in.
  */
-export const ORG_STAGES = ["not_contacted", "initial_email_sent", "have_a_contact"] as const;
+export const ORG_STAGES = ["not_contacted", "have_a_contact", "initial_email_sent"] as const;
 export type OrgStage = (typeof ORG_STAGES)[number];
 
 export const ORG_CONTACT_STATUS_LABEL: Record<OrgStage, string> = {
