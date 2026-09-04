@@ -45,10 +45,52 @@ account moving through the pipeline. **Approving a lead should offer to attach i
 to an organisation** — existing or new — and that attachment is what puts it in
 front of her on the board.
 
-### Proposed stages
+### The stages — settled 4 September 2026
 
-Hers to settle; this is a starting point, not a decision. Drawn from her list plus
-the two commercial stages her spreadsheet implies:
+She described her actual process, which is shorter than the list she first gave
+and shorter than the one proposed below. In her words:
+
+> 1. Find the venue, event, hotel, and locate the contact name of the
+>    responsible person. I need to note these names… hotel connections tend to
+>    move around. Noting the names gives us the opportunity to work with them in
+>    their new locations… the more people I contact the harder it is to remember
+>    who to speak to at each location.
+> 2. Once contacted they become a follow-up. Since I rarely get a response the
+>    first time, I keep a log of who I contacted and when so that I don't bombard
+>    them but know when to chase.
+> 3. Then they become 'a meeting' or 'in review'… Hopefully they then move to us
+>    becoming their supplier.
+
+So the stage list is **five, not eight**:
+
+| Stage | Means |
+| --- | --- |
+| New | Found, contact name noted, not yet approached |
+| Follow up | Contacted, waiting, being chased on a schedule |
+| In review | A meeting is set, or a live conversation is running |
+| Approved | Won — we are their supplier |
+| Not relevant | Closed |
+
+Both open questions are answered by that description:
+
+- **"Reviewed" is gone.** Her "in review" means *a meeting is booked*, not "I have
+  looked at it". There is no pre-contact stage, so the one that would have sat
+  empty never gets built.
+- **"Have a contact" is not a stage.** Noting the name is part of step 1, before
+  any approach — it is a property of a found opportunity, not a position on the
+  line. The five organisations marked that way collapse into **New**. This also
+  explains why it never fitted: it was never on the same axis.
+
+Her reason for wanting names recorded is worth keeping in view, because it is a
+requirement rather than a preference: *hotel people move, and she wants to follow
+them to the new hotel.* The panel already models this correctly — contacts belong
+to an organisation and survive it — but "where did this person go" is a query
+nothing currently answers.
+
+### The earlier proposal, kept for the record
+
+Superseded by the five above. Left here because the reasoning about ordering and
+enum storage still applies:
 
 | Stage | Means |
 | --- | --- |
@@ -196,6 +238,38 @@ which is precisely the "difficult to use and keep updated" problem she started
 with.
 
 So: keep the panel, take HubSpot's stage model, and leave the rest.
+
+## The open question: one screen, or two
+
+Her closing paragraph is the part that is not yet settled:
+
+> When we look at the lead desk, the opportunities should be on the main screen
+> under the headings (Can we add hotels?) so then I would have follow up, In
+> review and Approved.
+
+Two things are tangled in that sentence and they should be separated before
+anything is built.
+
+**One list, not two.** She says plainly that keeping a separate list defeats the
+purpose. The moments-versus-relationships split is right about the data and may
+still be wrong about the screen: she experiences one thing — opportunities she is
+working, at stages. The likely answer is not to merge the tables but to give her
+one working board where an unattached lead sits in **New** alongside the accounts,
+and approving it attaches it to an organisation from that point on. That is the
+lead-to-organisation link already deferred once, and her feedback is the argument
+for building it.
+
+**"Can we add hotels?"** is ambiguous and should be put back to her rather than
+guessed. The two readings are different pieces of work:
+
+- *A fifth scanner for hotels.* The four today are Film, Retail, Events and
+  Channel; there is no hotels scanner, yet Hotel is the largest sector in her own
+  list at 15 of 57.
+- *Her hotel accounts appearing on the lead desk.* They already exist as
+  organisations; they are simply on a screen she has not seen.
+
+Ask which she means. If it is the first, it is a scanner prompt and a scheduled
+task. If it is the second, it is the one-board question above and nothing new.
 
 ## Sequencing
 
