@@ -1,11 +1,16 @@
 /** Shared shapes and helpers for lead data. */
 import type { ActivityKind, FeedbackReason, FeedbackVerdict } from "./pipeline";
 
+/* Display names for the scanners. `agent` is free text on the lead rather than
+   an enum, so a new scanner needs no migration and its filter chip appears by
+   itself — this map only decides what the chip is called. An unknown agent
+   falls back to its raw value, so a missing entry is untidy, never broken. */
 export const AGENT_LABEL: Record<string, string> = {
   Film: "Film & TV",
   Retail: "Retail",
   Events: "Events",
   Channel: "Channel",
+  Hotels: "Hotels",
 };
 
 export const FIT_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };

@@ -1,9 +1,13 @@
 # Scanner prompt changes
 
-The four scanners are Claude scheduled tasks, not code in this repository. So
-this is text to paste into a scheduled task's prompt, not something that can be
-deployed. `Events` is used as the worked example throughout; the other three
-differ only in the `agent` value and the brief above these blocks.
+The scanners are Claude scheduled tasks, not code in this repository. So this is
+text to paste into a scheduled task's prompt, not something that can be
+deployed. `Events` is used as the worked example throughout; the others differ
+only in the `agent` value and the brief above these blocks.
+
+There are five: Film, Retail, Events, Channel, and **Hotels** — added 4
+September 2026, with its own brief in `docs/scanner-hotels.md`. That one needs
+Blocks A and B below as well; the brief only covers what it should hunt for.
 
 Read `AGENTS.md` first. Two rules bear directly on what follows: never invent
 lead data, and nothing in this application contacts anyone. Neither changes.
