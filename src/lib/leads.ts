@@ -11,6 +11,7 @@ export const AGENT_LABEL: Record<string, string> = {
   Events: "Events",
   Channel: "Channel",
   Hotels: "Hotels",
+  Exhibitions: "Exhibitions",
 };
 
 export const FIT_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
