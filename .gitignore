@@ -17,3 +17,6 @@ next-env.d.ts
 
 # real contact data for people at other companies — never commit
 data/
+
+# scratch folder used when files are moved rather than deleted
+_to_delete/

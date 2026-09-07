@@ -18,6 +18,10 @@ export const PUBLIC_PATHS = [
      of the digest — the same failure the /api/auth note above warns about. It
      checks the key itself, since the proxy no longer guards it. */
   "/api/feedback/digest",
+  /* Vercel Cron arrives with no session, only its bearer secret. The route
+     checks that itself; the proxy must let it through or the cron sees a
+     sign-in page and the inbox is never pulled. */
+  "/api/cron/pull-ingest",
 ];
 
 export default {

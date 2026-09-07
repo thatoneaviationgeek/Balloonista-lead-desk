@@ -57,6 +57,12 @@ on organisations, from her follow-up feedback, which also answers the HubSpot
 question. After that `docs/phase-2-jobs-board.md` for jobs and calendar sync,
 whose Stage 0 schema is already done.
 
+**Added 7 September 2026:** `docs/phase-4-scanner-bridge-and-enrichment.md` —
+the scanners cannot POST to the panel (their runtime is GET-only), so a Drive
+drop-box pulled by a cron replaces Block A, and a set of read-only enrichment
+endpoints (Companies House, tenders, search, rendered pages) gives them the
+depth Aurelija asked for. Stage 1 (the bridge) is the next thing to build.
+
 **On HubSpot:** she has asked for the panel to be "like HubSpot". Take its stage
 model and nothing else — `docs/phase-3-pipeline.md` sets out what to adopt and
 what to refuse. In particular, HubSpot's sales automation is built on automated

@@ -20,6 +20,15 @@ cover what they should hunt for.
 Read `AGENTS.md` first. Two rules bear directly on what follows: never invent
 lead data, and nothing in this application contacts anyone. Neither changes.
 
+> **Superseded in part, 7 September 2026.** Block A cannot run: the scheduled-task
+> runtime can only make plain GETs through `WebFetch` — no POST, no custom
+> headers, and its shell is blocked from reaching the panel (confirmed by a
+> refused `curl` to production). Block B works only once the digest accepts the
+> key in the query string. `docs/phase-4-scanner-bridge-and-enrichment.md`
+> replaces Block A with a Drive drop-box pulled by a cron (Block A′), and adds
+> the enrichment endpoints. Everything below about the keys and the digest's
+> trust boundary still stands.
+
 ---
 
 ## Block A — post results instead of writing a sheet

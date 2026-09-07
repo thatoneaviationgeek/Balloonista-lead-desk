@@ -44,7 +44,15 @@ export function checkScannerKey(request: Request, purpose: Purpose): NextRespons
     );
   }
 
-  const offered = request.headers.get("x-ingest-key");
+  /* A read-class call may carry the key in the query string, because the
+     scheduled-task scanners can only make plain GETs — no headers. A key in a
+     URL lands in function logs, so this is allowed for reads only: the read
+     key exposes counts, reason codes and Aurelija's notes, never a contact,
+     and it was already in plain text inside the task prompts. The write key
+     stays header-only; writes come through the Drive drop-box now, not here. */
+  const offered =
+    request.headers.get("x-ingest-key") ??
+    (purpose === "read" ? new URL(request.url).searchParams.get("key") : null);
   /* Compared with a plain !== rather than a timing-safe compare on purpose:
      these are long random bearer tokens over TLS, not short secrets, and a
      remote timing attack on string comparison is not a realistic route in. */

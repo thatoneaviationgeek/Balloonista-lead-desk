@@ -14,7 +14,8 @@
     "db:studio": "drizzle-kit studio",
     "import:leads": "tsx src/scripts/import-leads.ts",
     "people:add": "tsx src/scripts/seed-people.ts",
-    "people:list": "tsx src/scripts/seed-people.ts"
+    "people:list": "tsx src/scripts/seed-people.ts",
+    "check:bridge": "tsx src/scripts/check-ingest-bridge.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

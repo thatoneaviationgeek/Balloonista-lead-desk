@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -21,6 +22,10 @@ export const fitEnum = pgEnum("fit", ["High", "Medium", "Low"]);
 export const leadStatusEnum = pgEnum("lead_status", ["New", "Approved", "Rejected"]);
 export const personRoleEnum = pgEnum("person_role", ["owner", "staff", "viewer"]);
 export const runStatusEnum = pgEnum("run_status", ["running", "ok", "failed"]);
+/* One row per file the drop-box puller has picked up. `processing` is the
+   claim; it is what stops two overlapping cron invocations ingesting the same
+   file. See `src/lib/ingest-bridge.ts`. */
+export const ingestFileStatusEnum = pgEnum("ingest_file_status", ["processing", "ok", "failed"]);
 export const jobStatusEnum = pgEnum("job_status", [
   "enquiry",
   "quoted",
@@ -193,6 +198,48 @@ export const agentRuns = pgTable(
     meta: jsonb("meta"),
   },
   (t) => [index("agent_runs_started_idx").on(t.startedAt)],
+);
+
+/* ------------------------------------------- phase 4: the drop-box bridge */
+
+/* The scanners cannot POST to the panel — their runtime is GET-only — so they
+   write a JSON file into a Drive folder and `/api/cron/pull-ingest` collects
+   it. This table is the puller's memory: a Drive file id is inserted here
+   *before* its contents are ingested, with `onConflictDoNothing`, so whichever
+   invocation wins the insert owns the file and every other one skips it. That
+   is the same let-the-constraint-settle-it shape as the leads upsert, and it
+   is the whole idempotency story — nothing else stops a file being ingested
+   twice. A row stuck in `processing` for more than half an hour is treated as
+   an abandoned claim and may be taken over. */
+export const ingestFiles = pgTable(
+  "ingest_files",
+  {
+    driveFileId: text("drive_file_id").primaryKey(),
+    fileName: text("file_name").notNull(),
+    status: ingestFileStatusEnum("status").notNull().default("processing"),
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    error: text("error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("ingest_files_status_idx").on(t.status)],
+);
+
+/* The only way to tell a scanner to stop. The scheduled tasks cannot be halted
+   from here, so if one starts writing rubbish the inbox fills with it every
+   week. A paused agent's files go to `failed` with "paused" as the error, and
+   a paused agent's direct POST is refused with 409 — nothing is lost, nothing
+   is ingested, and unpausing needs no clean-up. Absent row = not paused. */
+export const agentSettings = pgTable(
+  "agent_settings",
+  {
+    agent: text("agent").notNull(),
+    region: regionEnum("region").notNull(),
+    paused: boolean("paused").notNull().default(false),
+    note: text("note"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agent, t.region] })],
 );
 
 /* ------------------------------------------- phase 2: jobs and tasks       */

@@ -30,6 +30,10 @@ Copy `.env.example` to a new file called `.env.local` **in the repo root** and f
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google Cloud console → APIs & Services → Credentials → OAuth client ID (Web application) |
 | `ALLOWED_EMAIL_DOMAIN` | your Workspace domain, e.g. `balloonista.co.uk`. Blank = only people already in the `people` table can sign in |
 | `INGEST_KEY` | `openssl rand -hex 24` — the shared secret the scanners post with |
+| `INGEST_WRITE_KEY` / `INGEST_READ_KEY` | the scanners' keys, split by privilege — see `docs/scanner-prompt-changes.md` |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | a service account the "Balloonista Ingest" Drive folder is shared with — see `docs/phase-4-scanner-bridge-and-enrichment.md` |
+| `INGEST_DRIVE_INBOX_ID` / `INGEST_DRIVE_PROCESSED_ID` / `INGEST_DRIVE_FAILED_ID` | the three subfolders of that folder |
+| `CRON_SECRET` | `openssl rand -hex 24` — what Vercel Cron presents to `/api/cron/pull-ingest` |
 
 Authorised redirect URIs on the Google OAuth client:
 

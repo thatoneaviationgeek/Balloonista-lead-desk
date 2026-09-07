@@ -43,6 +43,13 @@
       "when": 1788514214736,
       "tag": "0005_naive_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788791350470,
+      "tag": "0006_phase4_ingest_bridge",
+      "breakpoints": true
     }
   ]
 }
