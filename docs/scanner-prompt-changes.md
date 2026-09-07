@@ -5,16 +5,17 @@ text to paste into a scheduled task's prompt, not something that can be
 deployed. `Events` is used as the worked example throughout; the others differ
 only in the `agent` value and the brief above these blocks.
 
-There are six:
+There are seven:
 
 | Scanner | Brief |
 | --- | --- |
 | Film, Retail, Events, Channel | the original four |
 | **Hotels** | `docs/scanner-hotels.md` — added 4 September 2026 |
 | **Exhibitions** | `docs/scanner-exhibitions.md` — added 7 September 2026 |
+| **Suppliers** | `docs/scanner-suppliers.md` — added 7 September 2026 |
 
-The two new ones need Blocks A and B below as well; their own briefs only cover
-what they should hunt for.
+The three new ones need Blocks A and B below as well; their own briefs only
+cover what they should hunt for.
 
 Read `AGENTS.md` first. Two rules bear directly on what follows: never invent
 lead data, and nothing in this application contacts anyone. Neither changes.
